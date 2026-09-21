@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Wooster favicon study</title>
+    <link rel="icon" type="image/svg+xml" href="../frontend/public/favicon.svg" />
+    <style>
+      :root { color-scheme: light; font-family: "Segoe UI", sans-serif; color: #191c22; background: #eef0f3; }
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 56px 32px; }
+      main { max-width: 1040px; margin: auto; }
+      header { display: flex; align-items: baseline; justify-content: space-between; gap: 24px; margin-bottom: 32px; }
+      h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -1px; }
+      header p, figcaption, footer { font-size: 13px; color: #626b79; }
+      header p { margin: 0; }
+      .hero { display: grid; place-items: center; min-height: 380px; background: #fff; border-radius: 20px; }
+      .hero img { width: 192px; height: 192px; }
+      .comparison { display: flex; align-items: center; gap: 16px; margin-top: 24px; color: #626b79; font-size: 13px; }
+      .comparison img { width: 40px; height: 40px; }
+      .samples { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+      .sample { padding: 28px; border-radius: 16px; background: #fff; }
+      .sample.dark { background: #252a33; color: #fafbfc; }
+      .sizes { display: flex; align-items: baseline; gap: 36px; min-height: 96px; }
+      figure { margin: 0; text-align: center; }
+      figure img { display: block; margin: 0 auto 16px; }
+      figcaption { font-size: 11px; font-variant-numeric: tabular-nums; }
+      .dark figcaption { color: #b5bdca; }
+      .tab { display: flex; align-items: center; gap: 10px; margin-top: 24px; padding: 12px 16px; background: #eef0f3; border-radius: 10px 10px 0 0; font-size: 12px; }
+      .dark .tab { background: #353c48; }
+      .tab img { width: 16px; height: 16px; }
+      .close { margin-left: auto; color: #8791a0; }
+      footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 24px; line-height: 1.6; }
+      @media (max-width: 600px) {
+        body { padding: 28px 16px; }
+        header { align-items: start; flex-direction: column; gap: 8px; }
+        .hero { min-height: 280px; }
+        .hero img { width: 144px; height: 144px; }
+        .samples { grid-template-columns: 1fr; }
+        footer { flex-direction: column; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header><h1>wooster</h1><p>Favicon study / Artist's mark</p></header>
+      <div class="hero"><img src="../frontend/public/favicon.svg" alt="Wooster: an expressive white brush-drawn W with a small ink dot on a black tile" /></div>
+      <div class="samples">
+        <section class="sample" aria-label="Light background">
+          <div class="sizes">
+            <figure><img src="../frontend/public/favicon.svg" width="16" height="16" alt="" /><figcaption>16 px</figcaption></figure>
+            <figure><img src="../frontend/public/favicon.svg" width="32" height="32" alt="" /><figcaption>32 px</figcaption></figure>
+            <figure><img src="../frontend/public/favicon.svg" width="48" height="48" alt="" /><figcaption>48 px</figcaption></figure>
+          </div>
+          <div class="tab"><img src="../frontend/public/favicon.svg" alt="" /><span>Wooster · Replay</span><span class="close" aria-hidden="true">×</span></div>
+        </section>
+        <section class="sample dark" aria-label="Dark background">
+          <div class="sizes">
+            <figure><img src="../frontend/public/favicon.svg" width="16" height="16" alt="" /><figcaption>16 px</figcaption></figure>
+            <figure><img src="../frontend/public/favicon.svg" width="32" height="32" alt="" /><figcaption>32 px</figcaption></figure>
+            <figure><img src="../frontend/public/favicon.svg" width="48" height="48" alt="" /><figcaption>48 px</figcaption></figure>
+          </div>
+          <div class="tab"><img src="../frontend/public/favicon.svg" alt="" /><span>Wooster · Replay</span><span class="close" aria-hidden="true">×</span></div>
+        </section>
+      </div>
+      <div class="comparison"><img src="wooster-favicon-folded.svg" alt="First folded-ribbon W" /><span>Folded W</span><img src="wooster-favicon-signature.svg" alt="Previous smooth handwritten W" /><span>Signature W</span></div>
+      <footer><span>Pressure, a lifted stroke, a final dot.</span><span>Ink / White · Vector SVG</span></footer>
+    </main>
+  </body>
+</html>

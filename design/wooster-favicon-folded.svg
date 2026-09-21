@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Wooster — Folded W</title>
+  <rect width="64" height="64" rx="16" fill="#191C22"/>
+  <path d="M8 18H18L24 37L29 23H36L41 37L47 18H57L47 46H37L32.5 34L28 46H18Z" fill="#FAFBFC"/>
+  <path d="M24 37L29 23L32.5 34L28 46Z" fill="#A5ADBA"/>
+</svg>

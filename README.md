@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/nilparra-dev/wooster/main/frontend/public/favicon.svg" alt="Wooster logo" width="80" height="80" />
+
 # Wooster
 
 Resolve public and hidden Twitch VODs to playable M3U8 URLs, list a channel's
