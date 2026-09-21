@@ -262,7 +262,7 @@ export function ReplayPlayer() {
             <MessageSquare size={18} />
           </button>
           <a
-            href="https://github.com/nilparra-dev/twitch-vod-auto"
+            href="https://github.com/nilparra-dev/wooster"
             target="_blank"
             rel="noreferrer"
             aria-label="Source on GitHub"
