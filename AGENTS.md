@@ -1,6 +1,6 @@
 # Agent working agreement
 
-This repository contains a TypeScript CLI (`cli/`, published as the
+This repository (Wooster) contains a TypeScript CLI (`cli/`, published as the
 `twitch-vod-m3u8` npm package) and a standalone replay player (`frontend/`).
 
 ## Always apply the skill

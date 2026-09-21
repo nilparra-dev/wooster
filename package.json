@@ -45,12 +45,12 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nilparra-dev/twitch-vod-auto.git"
+    "url": "git+https://github.com/nilparra-dev/wooster.git"
   },
   "bugs": {
-    "url": "https://github.com/nilparra-dev/twitch-vod-auto/issues"
+    "url": "https://github.com/nilparra-dev/wooster/issues"
   },
-  "homepage": "https://github.com/nilparra-dev/twitch-vod-auto#readme",
+  "homepage": "https://github.com/nilparra-dev/wooster#readme",
   "license": "MIT",
   "publishConfig": {
     "tag": "beta"

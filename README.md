@@ -1,4 +1,4 @@
-# Twitch VOD M3U8
+# Wooster
 
 Resolve public and hidden Twitch VODs to playable M3U8 URLs, list a channel's
 recent streams (including hidden ones), archive chat replays, and stream
@@ -7,6 +7,10 @@ channels can be resolved too, and watched in the local player with
 server-stitched ads removed. Paste a VOD
 ID, a tracker URL, or a canonical `video:...` target. The resolver finds the
 available qualities and prints the URL without downloading the video.
+
+The package keeps the npm name
+[`twitch-vod-m3u8`](https://www.npmjs.com/package/twitch-vod-m3u8), so every
+command below reads `npx twitch-vod-m3u8@beta`.
 
 > This project is in beta. Twitch and third-party tracker changes may break
 > resolution without warning.
@@ -308,7 +312,7 @@ does not prevent using the existing video resolver.
 Messages, user colors, badge IDs, emote fragments, deleted-user messages and
 VOD-relative timestamps are retained. The local player below can read these
 exports. Emote image downloads are planned in
-[the archive/player roadmap](https://github.com/nilparra-dev/twitch-vod-auto/blob/main/docs/ARCHIVE_PLAYER_PLAN.md).
+[the archive/player roadmap](https://github.com/nilparra-dev/wooster/blob/main/docs/ARCHIVE_PLAYER_PLAN.md).
 The JSON format is our versioned format, not a TwitchDownloader-compatible export.
 
 Downloads save committed pages in `downloads/chat.json.archive/pages.jsonl` and
