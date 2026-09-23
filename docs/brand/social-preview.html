@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Wooster social preview</title>
+    <!-- Source of social-preview.png, the 1280x640 image GitHub shows when the
+         repository is shared. Render it with: node docs/brand/render-social-preview.mjs -->
+    <style>
+      * { box-sizing: border-box; margin: 0; }
+      html, body { width: 1280px; height: 640px; }
+      body {
+        display: flex; align-items: center; gap: 72px; padding: 0 120px;
+        background: radial-gradient(circle at 18% 50%, #24262b 0, #101113 58%);
+        color: #f4f5f7; font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+      }
+      svg { flex: none; width: 240px; height: 240px; filter: drop-shadow(0 24px 48px rgb(0 0 0 / 0.55)); }
+      rect { stroke: #2c2f36; stroke-width: 1; }
+      h1 { font-size: 104px; font-weight: 700; letter-spacing: -4px; line-height: 1; }
+      p { margin-top: 20px; max-width: 700px; font-size: 32px; line-height: 1.35; color: #b4b9c3; }
+      code {
+        display: inline-block; margin-top: 36px; padding: 14px 22px; border-radius: 12px;
+        background: #1c1e22; border: 1px solid #2c2f36; color: #f4f5f7;
+        font: 26px Consolas, "SF Mono", Menlo, monospace;
+      }
+      code span { color: #6d7380; }
+    </style>
+  </head>
+  <body>
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+  <rect width="64" height="64" rx="16" fill="#101113"/>
+  <path d="M14 22C16 18 20 14 22 15C24 16 21 24 20 28L15 43C21 36 29 24 35 18C37 16 40 17 40 20C39 25 35 34 34 40C41 30 46 17 53 10C54 9 55 10 54 12C51 21 41 41 32 50C30 52 28 51 28 47C28 43 30 36 31 32C24 40 15 51 10 55C9 56 8 55 9 52C11 44 16 31 17 25C17 23 15 24 14 24C13 24 13 23 14 22Z" fill="#FFFFFF"/>
+  <path d="M49 39C51 37 54 38 54 40C54 42 52 45 50 45C47 45 47 42 49 39Z" fill="#FFFFFF"/>
+    </svg>
+    <div>
+      <h1>Wooster</h1>
+      <p>Resolve public and hidden Twitch VODs, archive their chat, and watch them in a local player.</p>
+      <code><span>$</span> npx twitch-vod-m3u8@beta</code>
+    </div>
+  </body>
+</html>
