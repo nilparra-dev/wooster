@@ -72,17 +72,29 @@ browser regression needs Chromium; install it once with
 
 ## Releasing
 
-```bash
-npm version prerelease --preid=beta
-npm run build:package
-npm run test:package
-npm publish
-npm dist-tag add twitch-vod-m3u8@<version> latest
-```
+Releases are published to npm by the
+[release workflow](.github/workflows/release.yml) when a GitHub release is
+published. npm authenticates the workflow through trusted publishing, and each
+version carries a provenance attestation that links it to the commit it was
+built from.
+
+1. Move the `Unreleased` entries in `CHANGELOG.md` under the new version.
+2. Bump the version and create the tag:
+
+   ```bash
+   npm version prerelease --preid=beta   # or: npm version patch|minor|major
+   git push --follow-tags
+   ```
+
+3. Create a GitHub release for the new `vX.Y.Z` tag and paste its changelog
+   section as the notes. Mark it as a pre-release for beta versions.
+
+The workflow refuses to publish when the tag does not match `package.json`,
+and runs the packed-artifact smoke test before publishing.
 
 `publishConfig` publishes to the `beta` tag by default, so
-`npx twitch-vod-m3u8@beta` always tracks the newest prerelease. Move `latest`
-explicitly when the default `npx twitch-vod-m3u8` install should point to the
-new version; until there is a stable release, both channels can track the
-newest beta.
-
+`npx twitch-vod-m3u8@beta` always tracks the newest prerelease. A release that
+is not marked as a pre-release is published as `latest` instead. To move
+`latest` to a beta by hand, run
+`npm dist-tag add twitch-vod-m3u8@<version> latest` with a logged-in npm
+account.
