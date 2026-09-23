@@ -8,10 +8,19 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   cli:
-    name: CLI lint, test and build
-    runs-on: ubuntu-latest
+    # Users run the CLI on all three platforms, and the downloader and chat
+    # archive touch the filesystem, where path and locking behavior differ.
+    name: CLI lint, test and build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
     timeout-minutes: 10
     steps:
       - name: Checkout
