@@ -1,0 +1,46 @@
+name: VOD cannot be resolved
+description: A VOD, hidden stream or live channel that should resolve but does not.
+title: "[resolve]: "
+labels: ["bug", "area: resolver"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before reporting, check [Hidden VOD limits](https://github.com/nilparra-dev/wooster/blob/main/docs/hidden-vods.md): expired or deleted media cannot be recovered.
+
+        Do not paste playback URLs: they contain short-lived signed tokens.
+  - type: input
+    id: target
+    attributes:
+      label: Target
+      description: The VOD ID, tracker URL or canonical `video:...` target you passed.
+      placeholder: video:channel_51582913581_1721686515
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      placeholder: npx twitch-vod-m3u8@beta list channel --probe
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: The full output of the command, with `--json` if possible.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: stream-date
+    attributes:
+      label: Broadcast date
+      description: When the stream took place. Retention depends on its age.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `npx twitch-vod-m3u8@beta --version`.
+    validations:
+      required: true

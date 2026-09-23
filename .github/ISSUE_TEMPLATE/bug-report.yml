@@ -1,0 +1,60 @@
+name: Bug report
+description: Something in the CLI, downloader, chat archiver or player does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a VOD simply does not resolve, use the "VOD cannot be resolved" template instead.
+
+        Remove playback URLs, cookies, local paths and personal information from logs.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Resolver or list
+        - Download
+        - Chat archiving
+        - Browser player
+        - Live channels
+        - Programmatic API
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `npx twitch-vod-m3u8@beta ...`
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output or logs
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `npx twitch-vod-m3u8@beta --version`.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Operating system, Node.js version and, for the player, the browser.
+      placeholder: Windows 11, Node.js 22.14, Chrome 140
+    validations:
+      required: true
