@@ -56,7 +56,7 @@
     "tag": "beta"
   },
   "devDependencies": {
-    "@types/node": "^22.18.0",
-    "typescript": "^5.9.2"
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
   }
 }
