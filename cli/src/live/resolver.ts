@@ -1,4 +1,5 @@
 import { fetchAllowedMedia } from "../net/media.js";
+import { getString, isRecord } from "../json.js";
 import { parseMasterManifest, ResolveError } from "../resolver.js";
 import { TWITCH_WEB_CLIENT_ID } from "../twitch/gql.js";
 import type { PlaylistFormat, ResolveOptions } from "../types.js";
@@ -13,15 +14,6 @@ export interface LiveResolveResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 12_000;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getString(record: Record<string, unknown>, key: string): string | null {
-  const value = record[key];
-  return typeof value === "string" ? value : null;
-}
 
 /**
  * Resolve a channel that is live right now to its multivariant HLS URL.

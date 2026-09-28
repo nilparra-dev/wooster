@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { isRecord } from "../json.js";
 
 export const TWITCH_GQL_URL = "https://gql.twitch.tv/gql";
 export const TWITCH_WEB_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
@@ -26,10 +27,6 @@ export interface GqlQueryOptions {
    * internal API may have changed.
    */
   graphqlErrors?: (errors: unknown[]) => GqlQueryError;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function record(value: unknown): Record<string, unknown> {

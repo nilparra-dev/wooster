@@ -1,5 +1,6 @@
 import { stderr, stdout } from "node:process";
 
+import { integerValue } from "./args.js";
 import { mergeChannelStreams, streamTarget, type ChannelStream } from "./list.js";
 import { parseInput, ResolveError } from "./resolver.js";
 import { fetchChannelVideos, GqlClient, type ChannelVideoNode } from "./twitch/gql.js";
@@ -65,12 +66,7 @@ function parseTargetArgs(args: string[]): TargetOptions {
     const arg = args[index];
     if (!arg) continue;
     if (arg === "--timestamp") {
-      const value = args[index + 1];
-      const parsed = value === undefined ? Number.NaN : Number.parseInt(value, 10);
-      if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== value) {
-        throw new ResolveError("--timestamp requires start epoch seconds.", "INVALID_ARGUMENT");
-      }
-      options.timestamp = parsed;
+      options.timestamp = integerValue(args, index, arg, 1, Number.MAX_SAFE_INTEGER, "start epoch seconds");
       index += 1;
     } else if (arg === "--json") {
       options.json = true;

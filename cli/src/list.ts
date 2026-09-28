@@ -1,6 +1,7 @@
 import { stdin, stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 
+import { integerValue, optionValue } from "./args.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { fetchMedia } from "./net/media.js";
 import { chooseFormat, DEFAULT_TIMESTAMP_WINDOW, ResolveError, resolveM3U8 } from "./resolver.js";
@@ -274,15 +275,6 @@ interface ListOptions {
   downloadIndex?: number;
 }
 
-function requireInteger(args: string[], index: number, option: string, minimum: number, maximum: number): number {
-  const value = args[index + 1];
-  const parsed = value === undefined ? Number.NaN : Number.parseInt(value, 10);
-  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum || String(parsed) !== value) {
-    throw new ResolveError(`${option} requires an integer between ${minimum} and ${maximum}.`, "INVALID_ARGUMENT");
-  }
-  return parsed;
-}
-
 function parseListArgs(args: string[]): ListOptions {
   const options: ListOptions = {
     limit: 15,
@@ -301,7 +293,7 @@ function parseListArgs(args: string[]): ListOptions {
     const arg = args[index];
     if (!arg) continue;
     if (arg === "--limit") {
-      options.limit = requireInteger(args, index, arg, 1, 2000);
+      options.limit = integerValue(args, index, arg, 1, 2000);
       index += 1;
     } else if (arg === "--all") {
       options.all = true;
@@ -312,12 +304,10 @@ function parseListArgs(args: string[]): ListOptions {
     } else if (arg === "--json") {
       options.json = true;
     } else if (arg === "--quality" || arg === "-q") {
-      const value = args[index + 1];
-      if (!value || value.startsWith("-")) throw new ResolveError(`${arg} requires a value.`, "INVALID_ARGUMENT");
-      options.quality = value;
+      options.quality = optionValue(args, index, arg);
       index += 1;
     } else if (arg === "--timestamp-window") {
-      options.timestampWindow = requireInteger(args, index, arg, 0, 900);
+      options.timestampWindow = integerValue(args, index, arg, 0, 900);
       index += 1;
     } else if (arg === "--url" || arg === "--watch" || arg === "--target" || arg === "--download") {
       const next = args[index + 1];

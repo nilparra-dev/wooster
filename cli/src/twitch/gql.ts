@@ -1,4 +1,5 @@
 import { GqlQueryError, queryTwitchGql } from "./query.js";
+import { isRecord } from "../json.js";
 
 export { TWITCH_GQL_URL, TWITCH_WEB_CLIENT_ID } from "./query.js";
 
@@ -13,10 +14,6 @@ export class GqlError extends Error {
     super(message);
     this.name = "GqlError";
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function record(value: unknown): Record<string, unknown> {
