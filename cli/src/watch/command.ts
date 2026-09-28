@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { DEFAULT_TIMESTAMP_WINDOW, parseInput } from "../resolver.js";
+import { integerValue, optionValue } from "../args.js";
+import { DEFAULT_TIMESTAMP_WINDOW, parseInput, ResolveError } from "../resolver.js";
 import { startWatchServer, type ServerOptions } from "./server.js";
 
 export async function watchCommand(args: string[]): Promise<void> {
@@ -40,27 +41,22 @@ be reconstructed, and chat availability is independent of video recovery.
       options.autoChat = false;
       continue;
     }
-    if (["--channel", "--quality", "-q", "--chat", "--port", "--timestamp-window"].includes(arg)) {
-      const value = args[++index];
-      if (!value || value.startsWith("-"))
-        throw new Error(`${arg} requires a value.`);
+    if (arg === "--port") {
+      options.port = integerValue(args, index, arg, 0, 65535);
+      index += 1;
+    } else if (arg === "--timestamp-window") {
+      options.timestampWindow = integerValue(args, index, arg, 0, 900);
+      index += 1;
+    } else if (["--channel", "--quality", "-q", "--chat"].includes(arg)) {
+      const value = optionValue(args, index, arg);
+      index += 1;
       if (arg === "--channel") options.channel = value;
       else if (arg === "--chat") options.chatFile = value;
-      else if (arg === "--port") {
-        const port = Number(value);
-        if (!Number.isInteger(port) || port < 0 || port > 65535)
-          throw new Error("Port must be an integer between 0 and 65535.");
-        options.port = port;
-      } else if (arg === "--timestamp-window") {
-        const window = Number(value);
-        if (!Number.isInteger(window) || window < 0 || window > 900)
-          throw new Error("Timestamp window must be an integer between 0 and 900.");
-        options.timestampWindow = window;
-      } else options.quality = value;
+      else options.quality = value;
     } else if (arg.startsWith("-"))
-      throw new Error(`Unknown watch option: ${arg}`);
+      throw new ResolveError(`Unknown watch option: ${arg}`, "INVALID_ARGUMENT");
     else if (!options.input) options.input = arg;
-    else throw new Error(`Unexpected argument: ${arg}`);
+    else throw new ResolveError(`Unexpected argument: ${arg}`, "INVALID_ARGUMENT");
   }
   if (options.input) {
     // Live channels have their own server mode with ad filtering and token
@@ -73,7 +69,10 @@ be reconstructed, and chat availability is independent of video recovery.
       kind = null;
     }
     if (kind === "live") {
-      throw new Error("That looks like a live channel. Use `twitch-m3u8 live <channel> --watch` for live playback with ad filtering.");
+      throw new ResolveError(
+        "That looks like a live channel. Use `twitch-m3u8 live <channel> --watch` for live playback with ad filtering.",
+        "LIVE_UNSUPPORTED",
+      );
     }
   }
   const server = await startWatchServer(options);

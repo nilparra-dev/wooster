@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { mapWithConcurrency } from "./concurrency.js";
-import { fetchAllowedMedia, VOD_DOMAINS } from "./net/media.js";
+import { getString, isRecord } from "./json.js";
+import { ALIAS_VOD_DOMAINS, CLOUDFRONT_VOD_DOMAINS, fetchAllowedMedia } from "./net/media.js";
 import { fetchVideoMetadata, GqlClient, TWITCH_WEB_CLIENT_ID } from "./twitch/gql.js";
 import {
   fetchSullyGnomeStreamTime,
@@ -78,6 +79,17 @@ interface ProbeContext {
   timeoutMs: number;
   fetch: typeof fetch;
   signal?: AbortSignal;
+  onProgress?: (message: string) => void;
+  /**
+   * Which hostnames the probes use. It starts as "direct" (CloudFront) and
+   * switches once to "aliases" if no CloudFront hostname answers at all.
+   * The context lives for one resolution, so the switch never outlives it.
+   */
+  network: "direct" | "aliases";
+}
+
+function progress(ctx: ProbeContext, message: string): void {
+  ctx.onProgress?.(message);
 }
 
 /** Domains that recently served a channel, most recent first. */
@@ -126,9 +138,15 @@ function rememberDomain(channel: string, domain: string): void {
   domainMemory.set(key, [domain, ...remembered.filter((item) => item !== domain)].slice(0, 4));
 }
 
-export function orderedVodDomains(channel?: string): string[] {
+/**
+ * Hostnames to probe for a channel: the ones that already served it, then the
+ * pool for the current network. Aliases are a pool of their own because they
+ * repeat the CloudFront content.
+ */
+export function orderedVodDomains(channel?: string, network: ProbeContext["network"] = "direct"): string[] {
   const remembered = channel ? (domainMemory.get(channel.toLowerCase()) ?? []) : [];
-  return [...new Set([...remembered, ...VOD_DOMAINS])];
+  const pool = network === "direct" ? CLOUDFRONT_VOD_DOMAINS : ALIAS_VOD_DOMAINS;
+  return [...new Set([...remembered, ...pool])];
 }
 
 export function parseInput(rawInput: string): ParsedInput {
@@ -212,21 +230,14 @@ export function parseMasterManifest(manifest: string): PlaylistFormat[] {
   return formats;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getString(record: Record<string, unknown>, key: string): string | null {
-  const value = record[key];
-  return typeof value === "string" ? value : null;
-}
-
 function createContext(options: ResolveOptions): ProbeContext {
-  const context: ProbeContext = {
+  return {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     fetch: options.fetch ?? fetch,
+    network: "direct",
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.onProgress ? { onProgress: options.onProgress } : {}),
   };
-  return options.signal ? { ...context, signal: options.signal } : context;
 }
 
 function trackerOptions(ctx: ProbeContext): TrackerOptions {
@@ -294,13 +305,18 @@ async function probeUrl(url: string, ctx: ProbeContext): Promise<boolean | null>
   }
 }
 
-async function urlExists(url: string, ctx: ProbeContext): Promise<boolean> {
+/** Cached probe; null means the CDN gave no definitive answer, so nothing was cached. */
+async function probeAvailability(url: string, ctx: ProbeContext): Promise<boolean | null> {
   const now = Date.now();
   const cached = readProbeCache(url, now);
   if (cached !== null) return cached;
   const available = await probeUrl(url, ctx);
   if (available !== null) writeProbeCache(url, available, now);
-  return available ?? false;
+  return available;
+}
+
+async function urlExists(url: string, ctx: ProbeContext): Promise<boolean> {
+  return (await probeAvailability(url, ctx)) ?? false;
 }
 
 interface DomainMatch {
@@ -314,18 +330,38 @@ interface DomainMatch {
  * VOD without the source quality is still discovered.
  */
 async function findDomain(fullPath: string, channel: string | undefined, ctx: ProbeContext): Promise<DomainMatch | null> {
-  const domains = orderedVodDomains(channel);
+  const first = await findDomainAmong(orderedVodDomains(channel, ctx.network), fullPath, ctx);
+  if (first.match || first.answered || ctx.network === "aliases") return first.match;
+  // Not one CloudFront hostname answered, not even with a 403 or 404, so the
+  // network blocks them rather than the VOD being absent. Try Twitch's own
+  // hostnames, and keep using them for the rest of this resolution.
+  progress(ctx, "No CloudFront hostname answered; trying Twitch's own VOD hostnames.");
+  ctx.network = "aliases";
+  return (await findDomainAmong(orderedVodDomains(channel, ctx.network), fullPath, ctx)).match;
+}
+
+/**
+ * Probe `domains` for the path. `answered` reports whether any hostname gave
+ * a definitive response, which separates "not stored here" from "unreachable".
+ */
+async function findDomainAmong(
+  domains: readonly string[],
+  fullPath: string,
+  ctx: ProbeContext,
+): Promise<{ match: DomainMatch | null; answered: boolean }> {
+  let answered = false;
   for (const quality of QUALITY_PROBE_ORDER) {
     const checks = await Promise.all(
       domains.map(async (domain) => ({
         domain,
-        available: await urlExists(`${domain}/${fullPath}/${quality}/index-dvr.m3u8`, ctx),
+        available: await probeAvailability(`${domain}/${fullPath}/${quality}/index-dvr.m3u8`, ctx),
       })),
     );
-    const match = checks.find((item) => item.available);
-    if (match) return { domain: match.domain, quality };
+    if (checks.some((item) => item.available !== null)) answered = true;
+    const match = checks.find((item) => item.available === true);
+    if (match) return { match: { domain: match.domain, quality }, answered };
   }
-  return null;
+  return { match: null, answered };
 }
 
 async function probeFormats(domain: string, fullPath: string, ctx: ProbeContext): Promise<PlaylistFormat[]> {
@@ -382,7 +418,7 @@ async function searchTimestampWindow(
   windowSeconds: number,
   ctx: ProbeContext,
 ): Promise<{ seconds: number; domain: string } | null> {
-  const domains = orderedVodDomains(channel);
+  const domains = orderedVodDomains(channel, ctx.network);
   const deltas: number[] = [0];
   for (let step = 1; step <= windowSeconds; step += 1) deltas.push(step, -step);
   const pairs: Array<{ delta: number; domain: string }> = [];
@@ -430,6 +466,7 @@ async function resolveHiddenTarget(target: HiddenTarget): Promise<ResolveResult>
 
   // 1. The timestamp supplied by the caller is the cheapest thing to try.
   if (provided !== undefined) {
+    progress(ctx, `Checking Twitch's CDN for start time ${provided}.`);
     const result = await resolveAtTimestamp(
       channel,
       streamId,
@@ -443,6 +480,7 @@ async function resolveHiddenTarget(target: HiddenTarget): Promise<ResolveResult>
 
   // 2. Exact tracker timestamps: twitracker and SullyGnome expose seconds.
   // allSettled keeps a successful source even when the other one fails.
+  progress(ctx, "Asking TwiTracker and SullyGnome for the exact start time.");
   const exactResults = await Promise.allSettled([
     fetchTwitTrackerStreamTime(channel, streamId, trackerOptions(ctx)),
     fetchSullyGnomeStreamTime(channel, streamId, trackerOptions(ctx)),
@@ -470,6 +508,7 @@ async function resolveHiddenTarget(target: HiddenTarget): Promise<ResolveResult>
   if (provided !== undefined) {
     // 3. Match the nearest stream on a tracker list. Those pages expose the
     // exact start second and cover channels Twitch does not archive publicly.
+    progress(ctx, "Matching the nearest stream on StreamerVitals.");
     const streams = await fetchStreamerVitalsStreams(channel, trackerOptions(ctx)).catch(() => [] as TrackerStream[]);
     ctx.signal?.throwIfAborted();
     const nearest = nearestStream(streams, provided, TRACKER_CLOCK_TOLERANCE_SECONDS);
@@ -488,6 +527,7 @@ async function resolveHiddenTarget(target: HiddenTarget): Promise<ResolveResult>
     // 4. Bounded second-by-second search around the approximate timestamp.
     const window = options.timestampWindow ?? DEFAULT_TIMESTAMP_WINDOW;
     if (window > 0) {
+      progress(ctx, `Searching ${2 * window + 1} seconds around ${provided}; this can take a while.`);
       const found = await searchTimestampWindow(channel, streamId, provided, window, ctx);
       if (found) {
         const result = await resolveAtTimestamp(
@@ -519,6 +559,7 @@ async function resolveHiddenTarget(target: HiddenTarget): Promise<ResolveResult>
 }
 
 async function resolvePublicManifest(videoId: string, ctx: ProbeContext): Promise<ResolveResult> {
+  progress(ctx, "Requesting a playback token from Twitch.");
   const query = `query PlaybackAccessToken_Template($login: String!, $isLive: Boolean!, $vodID: ID!, $isVod: Boolean!, $playerType: String!, $platform: String!) { streamPlaybackAccessToken(channelName: $login, params: {platform: $platform, playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isLive) { value signature } videoPlaybackAccessToken(id: $vodID, params: {platform: $platform, playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isVod) { value signature } }`;
   const tokenResponse = await request(
     "https://gql.twitch.tv/gql",

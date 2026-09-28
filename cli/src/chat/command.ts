@@ -1,4 +1,7 @@
 import { stderr, stdout } from "node:process";
+import { optionValue } from "../args.js";
+import { EXIT_INTERRUPTED, exitCodeFor } from "../exit-codes.js";
+import { ResolveError } from "../resolver.js";
 import { downloadChat } from "./archive.js";
 import { ChatError } from "./model.js";
 import { TwitchChatClient } from "./twitch.js";
@@ -41,8 +44,8 @@ export async function chatCommand(args: string[]): Promise<void> {
       const arg = args[index];
       if (!arg || arg === "--json") continue;
       if (arg === "--output" || arg === "-o" || arg === "--channel") {
-        const value = args[++index];
-        if (!value || value.startsWith("-")) throw new ChatError("INVALID_ARGUMENT", `${arg} requires a value.`);
+        const value = optionValue(args, index, arg);
+        index += 1;
         if (arg === "--channel") channel = value;
         else output = value;
       } else if (arg.startsWith("-")) {
@@ -68,9 +71,9 @@ export async function chatCommand(args: string[]): Promise<void> {
       ? `Twitch returned an empty replay. Saved ${output}; this does not prove the original chat was empty.\n`
       : `Saved ${result.messageCount} messages to ${output}\n`);
   } catch (error) {
-    const code = error instanceof ChatError ? error.code : "ERROR";
+    const code = error instanceof ChatError || error instanceof ResolveError ? error.code : "ERROR";
     const message = error instanceof Error ? error.message : String(error);
-    process.exitCode = controller.signal.aborted ? 130 : 1;
+    process.exitCode = controller.signal.aborted ? EXIT_INTERRUPTED : exitCodeFor(code);
     if (json) stdout.write(`${JSON.stringify({ status: "error", error: { code, message } })}\n`);
     else stderr.write(`Error [${code}]: ${message}\n`);
   } finally {

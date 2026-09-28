@@ -9,6 +9,8 @@ it with `node dist/cli.js` after `npm run build`.
 -q, --quality <quality>      Select a quality; defaults to best
 --channel <channel>          Channel for a hidden stream ID
 --timestamp-window <secs>    Seconds searched around an approximate timestamp (default 120)
+--timeout <seconds>          Per-request timeout, 1 to 300 (default 12)
+--verbose                    Explain each resolution step on stderr
 --all                        Print every available quality
 --json                       Print structured JSON
 --copy                       Copy the selected URL to the clipboard
@@ -25,6 +27,42 @@ vlc "$(npx twitch-vod-m3u8@beta URL_OR_ID)"
 
 Public Twitch manifest URLs contain short-lived playback credentials. Run the
 resolver again if a public URL expires.
+
+`--verbose` narrates the resolution on stderr, so the URL on stdout stays clean
+for scripts. It names the step in progress (a playback token, a tracker lookup,
+the timestamp window search), then the hostname that serves the VOD and, for a
+hidden VOD, which source supplied the start time and how far it was from the
+one you gave. A hidden stream that needs the window search can take a while;
+`--timeout` shortens or extends how long each request may wait.
+
+## Exit codes
+
+Every command uses the same codes, so a script can react without reading the
+message. `--json` errors also carry a finer `error.code`.
+
+| Code | Meaning | Typical `error.code` |
+| --- | --- | --- |
+| 0 | Success | |
+| 1 | Unexpected failure | `ERROR`, `FFMPEG_FAILED`, `OUTPUT_EXISTS` |
+| 2 | Invalid command line or input | `INVALID_ARGUMENT`, `INVALID_INPUT`, `CHANNEL_REQUIRED` |
+| 3 | Nothing found | `NOT_FOUND`, `TIMESTAMP_UNAVAILABLE`, `OFFLINE`, `QUALITY_UNAVAILABLE` |
+| 4 | Twitch or a tracker could not be reached | `NETWORK_ERROR`, `HTTP_ERROR` |
+| 130 | Interrupted with Ctrl+C | |
+
+## Behind a proxy
+
+Node.js's `fetch` ignores `HTTP_PROXY` and `HTTPS_PROXY` unless you ask for it.
+Node.js 22.21 and later read them when `NODE_USE_ENV_PROXY=1` is set, which
+applies to every request the CLI makes:
+
+```bash
+NODE_USE_ENV_PROXY=1 HTTPS_PROXY=http://proxy.example:3128 npx twitch-vod-m3u8@beta URL_OR_ID
+```
+
+Node.js prints an `EnvHttpProxyAgent is experimental` warning on stderr when
+this is on; it does not affect the result or stdout. Older Node.js 22 releases
+have no built-in way to route `fetch` through a proxy. The CLI itself adds no
+proxy handling.
 
 ## Listing channel streams
 
