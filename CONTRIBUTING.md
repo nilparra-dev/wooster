@@ -30,6 +30,7 @@ Do not report vulnerabilities in public issues; follow the
 npm install
 npm test
 npm run typecheck
+npm run lint
 npm run build
 node dist/cli.js --help
 ```

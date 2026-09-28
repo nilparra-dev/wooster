@@ -27,11 +27,12 @@
     "build": "tsc -p tsconfig.cli.json",
     "build:package": "npm run clean && npm run build && npm --prefix frontend ci && npm --prefix frontend run build:player",
     "typecheck": "tsc -p tsconfig.cli.json --noEmit",
+    "lint": "eslint .",
     "test": "npm run build && node --test cli/test/*.test.mjs",
     "test:package": "node scripts/package-smoke.mjs",
     "pretest:package": "npm run build:package",
     "prepack": "npm run build:package",
-    "prepublishOnly": "npm run test"
+    "prepublishOnly": "npm run lint && npm run test"
   },
   "keywords": [
     "twitch",
@@ -56,7 +57,11 @@
     "tag": "beta"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^22.18.0",
-    "typescript": "^5.9.2"
+    "eslint": "^9.39.5",
+    "globals": "^15.15.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.71.0"
   }
 }
