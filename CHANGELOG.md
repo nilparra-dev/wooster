@@ -33,6 +33,13 @@ npm publish dates.
 
 ### Fixed
 
+- Tracker sources that answer with a rate limit no longer look like an empty
+  channel: `list` and `target` retry them honouring `Retry-After` and report a
+  persistent failure as a warning instead of dropping the source silently.
+- `list` and `target` ask TwiTracker's JSON API first and fall back to its HTML
+  pages, so a throttled page no longer leaves rows without a stream ID or a
+  start time. The list follows the API pagination, which gives `--limit` more
+  rows with resolvable targets.
 - Downloads repair unset MPEG-TS timestamps that made VLC jump to ~26.5 hours.
 - Download segment URLs and redirects must stay on Twitch's media domains.
 - The player keeps mute and volume across source changes.

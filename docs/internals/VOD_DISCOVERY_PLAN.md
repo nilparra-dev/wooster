@@ -85,10 +85,18 @@ from the resolved playlist instead of trusting the sampled estimate.
 Trackers expose exact start times with seconds, which removes the need to
 guess:
 
-- **TwiTracker** stream pages embed `datetime="2026-09-09T20:41:21.000Z"` in the
-  HTML and the URL contains the Twitch stream ID
-  (`https://twitracker.com/streamers/dralii/streams/321352284122`). Plain
-  `fetch` works.
+- **TwiTracker** publishes the same data through a JSON API and its HTML pages.
+  The stream table (`/api/streamers/<channel>/streams?page=N`) carries the
+  Twitch stream ID in `id` and the exact start second in `startedAt`, serves 15
+  rows per page, and was measured at 6/6 HTTP 200 while every HTML request on
+  the same host answered `503` with `Retry-After: 2`. The stream detail
+  (`/api/streams/<streamId>`) answers a single lookup with `startedAt` for any
+  stream ID, which removes the page request from the timestamp chain. The HTML
+  pages stay as the fallback (`/streamers/<channel>` and
+  `/streamers/<channel>/streams/<streamId>`, which embeds
+  `datetime="2026-09-09T20:41:21.000Z"`): the fetcher retries transient
+  failures on each endpoint, and when neither answers it reports both reasons
+  instead of returning no rows.
 - **StreamerVitals** channel stream list embeds one `dateTime` per row with
   seconds and links to stream pages. Plain `fetch` works. It documents its data
   as observed through the official Twitch API.
@@ -106,7 +114,7 @@ Resolve in a cascade, cheapest and most reliable source first:
    `video(id)` metadata still exposes `seekPreviewsURL`, derive the hidden path
    and probe that exact domain before giving up.
 2. **Canonical or stream-id input → exact timestamp first**:
-   - stream-id input: TwiTracker stream page (stream ID is in the URL);
+   - stream-id input: TwiTracker JSON stream detail, then its stream page;
    - canonical input: StreamerVitals channel list matched by nearest time
      around the provided timestamp, then TwiTracker if stream ID mapping is
      available;

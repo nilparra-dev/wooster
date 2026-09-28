@@ -442,8 +442,8 @@ export async function listCommand(args: string[]): Promise<void> {
       recordFailure("Twitch archive", error);
       return [] as ChannelVideoNode[];
     }),
-    fetchTwitTrackerStreams(login).catch((error: unknown) => {
-      recordFailure("TwitchTracker", error);
+    fetchTwitTrackerStreams(login, { limit: fetchLimit }).catch((error: unknown) => {
+      recordFailure("TwiTracker", error);
       return [] as TrackerStream[];
     }),
     fetchStreamerVitalsStreams(login).catch((error: unknown) => {

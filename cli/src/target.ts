@@ -116,10 +116,14 @@ async function targetFromStreamId(
     return;
   }
 
-  const [twitTracker, sullyGnome] = await Promise.all([
+  // allSettled keeps the fallback to the other source when one tracker rejects
+  // instead of losing both answers to the first failure.
+  const exact = await Promise.allSettled([
     fetchTwitTrackerStreamTime(channel, streamId),
     fetchSullyGnomeStreamTime(channel, streamId),
   ]);
+  const twitTracker = exact[0].status === "fulfilled" ? exact[0].value : null;
+  const sullyGnome = exact[1].status === "fulfilled" ? exact[1].value : null;
   const used = twitTracker ?? sullyGnome;
   const source = twitTracker !== null ? "twitracker" : "sullygnome";
   if (used === null) {
@@ -159,7 +163,7 @@ async function targetFromChannel(options: TargetOptions, channel: string): Promi
       return [] as ChannelVideoNode[];
     }),
     fetchTwitTrackerStreams(channel).catch((error: unknown) => {
-      recordFailure("TwitchTracker", error);
+      recordFailure("TwiTracker", error);
       return [] as TrackerStream[];
     }),
     fetchStreamerVitalsStreams(channel).catch((error: unknown) => {
