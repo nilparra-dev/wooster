@@ -14,8 +14,9 @@ console.log(selected.url);
 `parseInput`, `buildFullVodPath`, `parseMasterManifest`, `VOD_DOMAINS`,
 `ResolveError` and the result types are exported too. `resolveLiveM3U8` resolves
 a live channel to the same format shape. `resolveM3U8` accepts
-`{ channel, timeoutMs, timestampWindow, signal, fetch }` as an optional second
-argument. Hidden results include a `timestamp` report with the requested and
+`{ channel, timeoutMs, timestampWindow, signal, fetch, onProgress }` as an
+optional second argument. `onProgress` receives a short English sentence before
+each step that can take noticeable time; it is meant for people, so do not parse it. Hidden results include a `timestamp` report with the requested and
 actually used second, whether it was corrected, and which source provided it.
 `ResolveError.code` distinguishes `NOT_FOUND`, `TIMESTAMP_UNAVAILABLE`,
 `CHANNEL_REQUIRED` and the other failure modes.

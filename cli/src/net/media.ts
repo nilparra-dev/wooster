@@ -1,5 +1,5 @@
-/** Twitch VOD distributions used by the hidden-VOD resolver. */
-export const VOD_DOMAINS = [
+/** CloudFront distributions that store Twitch VODs, probed by the hidden-VOD resolver. */
+export const CLOUDFRONT_VOD_DOMAINS = [
   "https://ds0h3roq6wcgc.cloudfront.net",
   "https://d2nvs31859zcd8.cloudfront.net",
   "https://d2aba1wr3818hz.cloudfront.net",
@@ -12,12 +12,21 @@ export const VOD_DOMAINS = [
   "https://d3fi1amfgojobc.cloudfront.net",
   "https://d2vi6trrdongqn.cloudfront.net",
   "https://d3stzm2eumvgb4.cloudfront.net",
-  // Verified aliases of the ds0h/d2nv distribution. They only help when a
-  // network can reach twitch.tv but not the CloudFront hostname.
+] as const;
+
+/**
+ * Verified aliases of the ds0h/d2nv distribution. They store nothing the
+ * CloudFront hostnames do not, so probing them alongside those only repeats
+ * requests. They matter when a network can reach twitch.tv but not CloudFront.
+ */
+export const ALIAS_VOD_DOMAINS = [
   "https://vod-secure.twitch.tv",
   "https://vod-metro.twitch.tv",
   "https://vod-pop-secure.twitch.tv",
 ] as const;
+
+/** Every VOD distribution host the media allowlist accepts. */
+export const VOD_DOMAINS = [...CLOUDFRONT_VOD_DOMAINS, ...ALIAS_VOD_DOMAINS] as const;
 
 const cdns = new Set(VOD_DOMAINS.map((domain) => new URL(domain).hostname));
 const MAX_MEDIA_REDIRECTS = 4;

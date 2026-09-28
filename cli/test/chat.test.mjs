@@ -502,7 +502,7 @@ describe("chat CLI", () => {
   });
   it("emits structured errors without starting network work for missing arguments", () => {
     const result = spawnSync(process.execPath, ["dist/cli.js", "chat", "123", "--json"], { encoding: "utf8" });
-    assert.equal(result.status, 1);
+    assert.equal(result.status, 2);
     assert.equal(JSON.parse(result.stdout).error.code, "INVALID_ARGUMENT");
     assert.equal(result.stderr, "");
   });

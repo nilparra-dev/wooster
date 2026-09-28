@@ -4,6 +4,9 @@ import { createInterface } from "node:readline/promises";
 import { readFileSync } from "node:fs";
 import { stdin, stderr, stdout } from "node:process";
 
+import { integerValue, optionValue } from "./args.js";
+import { exitCodeFor } from "./exit-codes.js";
+import type { ResolveResult } from "./types.js";
 import { chooseFormat, DEFAULT_TIMESTAMP_WINDOW, parseInput, ResolveError, resolveM3U8 } from "./resolver.js";
 import { copyToClipboard, openPlayer } from "./player-open.js";
 import { chatCommand } from "./chat/command.js";
@@ -34,6 +37,11 @@ interface CliOptions {
   open: boolean;
   player?: string;
   timestampWindow: number;
+  /** Per-request timeout in seconds; the resolver default applies when unset. */
+  timeoutSeconds?: number;
+  verbose: boolean;
+  /** Set by --help and --version, which stop parsing and print instead of resolving. */
+  info?: "help" | "version";
 }
 
 function help(): string {
@@ -64,18 +72,22 @@ Options:
   -q, --quality <quality>      Select a quality; defaults to best
   --channel <channel>          Channel for a hidden stream ID
   --timestamp-window <secs>    Seconds searched around an approximate timestamp (default ${DEFAULT_TIMESTAMP_WINDOW})
+  --timeout <seconds>          Per-request timeout, 1 to 300 (default 12)
+  --verbose                    Explain each resolution step on stderr
   --all                        Print every available quality
   --json                       Print structured JSON
   --copy                       Copy the selected URL to the clipboard
   --open [player]              Open VLC, MPV, IINA, or PotPlayer
   -h, --help                   Show this help
-  -v, --version                Show the version`;
-}
+  -v, --version                Show the version
 
-function requireValue(args: string[], index: number, option: string): string {
-  const value = args[index + 1];
-  if (!value || value.startsWith("-")) throw new ResolveError(`${option} requires a value.`);
-  return value;
+Exit codes:
+  0    Success
+  1    Unexpected failure
+  2    Invalid command line or input
+  3    Nothing found: missing VOD, unavailable timestamp, offline channel
+  4    Twitch or a tracker could not be reached
+  130  Interrupted with Ctrl+C`;
 }
 
 function parseArgs(args: string[]): CliOptions {
@@ -86,32 +98,27 @@ function parseArgs(args: string[]): CliOptions {
     copy: false,
     open: false,
     timestampWindow: DEFAULT_TIMESTAMP_WINDOW,
+    verbose: false,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (!arg) continue;
-    if (arg === "-h" || arg === "--help") {
-      stdout.write(`${help()}\n`);
-      process.exit(0);
-    }
-    if (arg === "-v" || arg === "--version") {
-      stdout.write(`${VERSION}\n`);
-      process.exit(0);
-    }
+    if (arg === "-h" || arg === "--help") return { ...options, info: "help" };
+    if (arg === "-v" || arg === "--version") return { ...options, info: "version" };
     if (arg === "-q" || arg === "--quality") {
-      options.quality = requireValue(args, index, arg);
+      options.quality = optionValue(args, index, arg);
       index += 1;
     } else if (arg === "--channel") {
-      options.channel = requireValue(args, index, arg);
+      options.channel = optionValue(args, index, arg);
       index += 1;
     } else if (arg === "--timestamp-window") {
-      const value = requireValue(args, index, arg);
-      const parsed = Number.parseInt(value, 10);
-      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 900 || String(parsed) !== value) {
-        throw new ResolveError("--timestamp-window requires an integer between 0 and 900.", "INVALID_ARGUMENT");
-      }
-      options.timestampWindow = parsed;
+      options.timestampWindow = integerValue(args, index, arg, 0, 900);
       index += 1;
+    } else if (arg === "--timeout") {
+      options.timeoutSeconds = integerValue(args, index, arg, 1, 300);
+      index += 1;
+    } else if (arg === "--verbose") {
+      options.verbose = true;
     } else if (arg === "--all") {
       options.all = true;
     } else if (arg === "--json") {
@@ -126,11 +133,11 @@ function parseArgs(args: string[]): CliOptions {
         index += 1;
       }
     } else if (arg.startsWith("-")) {
-      throw new ResolveError(`Unknown option: ${arg}`);
+      throw new ResolveError(`Unknown option: ${arg}`, "INVALID_ARGUMENT");
     } else if (!options.input) {
       options.input = arg;
     } else {
-      throw new ResolveError(`Unexpected argument: ${arg}`);
+      throw new ResolveError(`Unexpected argument: ${arg}`, "INVALID_ARGUMENT");
     }
   }
   return options;
@@ -138,11 +145,11 @@ function parseArgs(args: string[]): CliOptions {
 
 async function askInput(options: CliOptions): Promise<CliOptions> {
   if (options.input) return options;
-  if (!stdin.isTTY) throw new ResolveError("Missing URL or ID. Run --help for examples.");
+  if (!stdin.isTTY) throw new ResolveError("Missing URL or ID. Run --help for examples.", "INVALID_ARGUMENT");
   const prompt = createInterface({ input: stdin, output: stderr });
   const input = (await prompt.question("Paste a URL, ID, or video:... target\n> ")).trim();
   prompt.close();
-  if (!input) throw new ResolveError("No input was provided.");
+  if (!input) throw new ResolveError("No input was provided.", "INVALID_ARGUMENT");
   return { ...options, input };
 }
 
@@ -153,8 +160,24 @@ async function askForMissingChannel(options: CliOptions): Promise<CliOptions> {
   const prompt = createInterface({ input: stdin, output: stderr });
   const channel = (await prompt.question("Channel for this hidden stream:\n> ")).trim();
   prompt.close();
-  if (!channel) throw new ResolveError("A channel is required to resolve a hidden stream ID.");
+  if (!channel) throw new ResolveError("A channel is required to resolve a hidden stream ID.", "CHANNEL_REQUIRED");
   return { ...options, channel };
+}
+
+/** What `--verbose` reports once the resolver has an answer. */
+function describeResult(result: ResolveResult): string[] {
+  const lines = [`Resolved a ${result.kind === "live" ? "live stream" : `${result.kind} VOD`} with ${result.formats.length} qualities.`];
+  const first = result.formats[0];
+  if (first) lines.push(`Served from ${new URL(first.url).hostname}.`);
+  if (result.kind === "hidden" && result.timestamp) {
+    const { requested, used, adjusted, source } = result.timestamp;
+    lines.push(
+      adjusted && requested !== null
+        ? `Start time ${used} from ${source}, ${Math.abs(used - requested)}s away from the requested ${requested}.`
+        : `Start time ${used} from ${source}.`,
+    );
+  }
+  return lines;
 }
 
 async function main(): Promise<void> {
@@ -182,14 +205,26 @@ async function main(): Promise<void> {
     await targetCommand(process.argv.slice(3));
     return;
   }
-  const options = await askForMissingChannel(await askInput(parseArgs(process.argv.slice(2))));
-  if (!options.input) throw new ResolveError("Missing URL or ID.");
+  const parsed = parseArgs(process.argv.slice(2));
+  if (parsed.info === "help") {
+    stdout.write(`${help()}\n`);
+    return;
+  }
+  if (parsed.info === "version") {
+    stdout.write(`${VERSION}\n`);
+    return;
+  }
+  const options = await askForMissingChannel(await askInput(parsed));
+  if (!options.input) throw new ResolveError("Missing URL or ID.", "INVALID_ARGUMENT");
 
-  if (stderr.isTTY) stderr.write("Searching Twitch playlists...\n");
+  if (stderr.isTTY || options.verbose) stderr.write("Searching Twitch playlists...\n");
   const result = await resolveM3U8(options.input, {
     timestampWindow: options.timestampWindow,
     ...(options.channel ? { channel: options.channel } : {}),
+    ...(options.timeoutSeconds !== undefined ? { timeoutMs: options.timeoutSeconds * 1000 } : {}),
+    ...(options.verbose ? { onProgress: (message: string) => stderr.write(`  ${message}\n`) } : {}),
   });
+  if (options.verbose) for (const line of describeResult(result)) stderr.write(`${line}\n`);
   if (result.kind === "live" && stderr.isTTY) {
     // The generic resolver accepts live: targets and channel URLs for
     // scripting, but the raw URL still carries server-stitched ads.
@@ -217,11 +252,11 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
+  const code = error instanceof ResolveError ? error.code : "ERROR";
   if (process.argv.includes("--json")) {
-    const code = error instanceof ResolveError ? error.code : "ERROR";
     stdout.write(`${JSON.stringify({ error: { code, message } })}\n`);
   } else {
     stderr.write(`Error: ${message}\n`);
   }
-  process.exitCode = 1;
+  process.exitCode = exitCodeFor(code);
 });

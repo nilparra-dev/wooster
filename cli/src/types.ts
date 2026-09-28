@@ -62,4 +62,10 @@ export interface ResolveOptions {
   timestampWindow?: number;
   signal?: AbortSignal;
   fetch?: typeof fetch;
+  /**
+   * Called with a short English sentence before each resolution step that can
+   * take noticeable time, such as a tracker lookup or the timestamp window
+   * search. The text is for people; do not parse it.
+   */
+  onProgress?: (message: string) => void;
 }

@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { isRecord } from "../json.js";
 
 const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -173,10 +174,6 @@ async function fetchJson(url: string, options: TrackerOptions): Promise<unknown 
   } catch {
     return null;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isoToEpoch(value: string): number | null {

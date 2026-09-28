@@ -21,8 +21,31 @@ npm publish dates.
 - `--install-ffmpeg` provisions a pinned, checksum-verified ffmpeg build.
 - Probe results are cached per media URL within a process, and chat archives
   resume from a checkpoint.
+- `--verbose` narrates the resolution on stderr: the step in progress, the
+  serving hostname and, for a hidden VOD, the source and offset of the start
+  time. The programmatic `resolveM3U8` gains a matching `onProgress` option.
+- `--timeout <seconds>` sets the per-request timeout of the resolver.
+- The CLI has documented exit codes: 2 for an invalid command line or input, 3
+  when nothing is found and 4 when Twitch or a tracker cannot be reached.
+- `npm run lint` runs ESLint over the CLI, and CI enforces it.
+- A daily canary workflow resolves a real recent VOD, both by its public ID and
+  by its rebuilt hidden path, and opens an issue when that stops working.
 
 ### Changed
+
+- **Breaking:** a usage error now exits with 2, a missing VOD or channel with
+  3, and a network failure with 4, where every failure used to exit with 1.
+  Failures without a specific code still exit with 1, and Ctrl+C during
+  `download` or `chat` still exits with 130.
+- **Breaking:** invalid arguments report the `INVALID_ARGUMENT` code, in
+  `--json` output too, where the top-level command and `live` used the generic
+  `RESOLVE_FAILED` and `watch` used none. `--port` for `live` and `watch`
+  now uses the same integer rule as the other numeric options.
+- The three Twitch-owned VOD hostnames (`vod-secure`, `vod-metro`,
+  `vod-pop-secure`) are probed only when no CloudFront hostname answers. They
+  repeat the CloudFront content, so probing them together added a fifth of the
+  requests of a timestamp window search for nothing. `VOD_DOMAINS` still lists
+  all of them.
 
 - The project is now called Wooster. The npm package keeps the name
   `twitch-vod-m3u8`.

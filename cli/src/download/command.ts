@@ -2,6 +2,8 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { stderr, stdout } from "node:process";
 
+import { choiceValue, integerValue, optionValue } from "../args.js";
+import { exitCodeFor, EXIT_INTERRUPTED } from "../exit-codes.js";
 import { chooseFormat, DEFAULT_TIMESTAMP_WINDOW, ResolveError, resolveM3U8 } from "../resolver.js";
 import { fetchMedia } from "../net/media.js";
 import type { ResolveResult } from "../types.js";
@@ -11,7 +13,6 @@ import {
   findFfmpeg,
   probeDuration,
   remuxToMp4,
-  type FfmpegProgress,
   type FfmpegTools,
 } from "./ffmpeg.js";
 import { downloadHls } from "./hls.js";
@@ -105,8 +106,7 @@ export function parseDownloadArgs(args: string[]): DownloadCliOptions {
       arg === "--channel" ||
       arg === "--ffmpeg-path"
     ) {
-      const value = args[index + 1];
-      if (!value || value.startsWith("-")) throw new ResolveError(`${arg} requires a value.`, "INVALID_ARGUMENT");
+      const value = optionValue(args, index, arg);
       if (arg === "-o" || arg === "--output") options.output = value;
       else if (arg === "--output-dir") options.outputDir = value;
       else if (arg === "--channel") options.channel = value;
@@ -114,27 +114,13 @@ export function parseDownloadArgs(args: string[]): DownloadCliOptions {
       else options.quality = value;
       index += 1;
     } else if (arg === "--concurrency") {
-      const value = args[index + 1];
-      const parsed = value === undefined ? Number.NaN : Number.parseInt(value, 10);
-      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 32 || String(parsed) !== value) {
-        throw new ResolveError("--concurrency requires an integer between 1 and 32.", "INVALID_ARGUMENT");
-      }
-      options.concurrency = parsed;
+      options.concurrency = integerValue(args, index, arg, 1, 32);
       index += 1;
     } else if (arg === "--engine") {
-      const value = args[index + 1];
-      if (value !== "auto" && value !== "native" && value !== "ffmpeg" && value !== "hybrid") {
-        throw new ResolveError("--engine must be auto, native, ffmpeg or hybrid.", "INVALID_ARGUMENT");
-      }
-      options.engine = value;
+      options.engine = choiceValue(args, index, arg, ["auto", "native", "ffmpeg", "hybrid"]);
       index += 1;
     } else if (arg === "--timestamp-window") {
-      const value = args[index + 1];
-      const parsed = value === undefined ? Number.NaN : Number.parseInt(value, 10);
-      if (!Number.isInteger(parsed) || parsed < 0 || parsed > 900 || String(parsed) !== value) {
-        throw new ResolveError("--timestamp-window requires an integer between 0 and 900.", "INVALID_ARGUMENT");
-      }
-      options.timestampWindow = parsed;
+      options.timestampWindow = integerValue(args, index, arg, 0, 900);
       index += 1;
     } else if (arg === "--force") {
       options.force = true;
@@ -636,7 +622,7 @@ export async function downloadCommand(args: string[]): Promise<void> {
       error instanceof DownloadError || error instanceof ResolveError || error instanceof FfmpegError
         ? error.code
         : "ERROR";
-    process.exitCode = aborted ? 130 : 1;
+    process.exitCode = aborted ? EXIT_INTERRUPTED : exitCodeFor(code);
     if (options.json) stdout.write(`${JSON.stringify({ status: "error", error: { code, message } })}\n`);
     else stderr.write(`Error: ${message}\n`);
   } finally {

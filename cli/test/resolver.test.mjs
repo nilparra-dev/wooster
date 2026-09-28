@@ -333,6 +333,89 @@ describe("hidden VOD resolution chain", () => {
     assert.ok(result.formats.some((format) => format.id === "Source"));
   });
 
+  describe("Twitch alias hostnames", () => {
+    const aliasHosts = ["vod-secure.twitch.tv", "vod-metro.twitch.tv", "vod-pop-secure.twitch.tv"];
+    const isAlias = (url) => aliasHosts.some((host) => url.startsWith(`https://${host}/`));
+
+    it("are not probed while a CloudFront hostname answers", async () => {
+      const timestamp = 7000;
+      const requested = [];
+      const fetchImpl = async (input) => {
+        const url = String(input);
+        requested.push(url);
+        if (isCdn(url)) return cdnResponse(403);
+        return cdnResponse(404);
+      };
+      await assert.rejects(
+        resolveM3U8(`video:aliasfree_${streamId}_${timestamp}`, { fetch: fetchImpl, timestampWindow: 0 }),
+        (error) => error instanceof ResolveError && error.code === "NOT_FOUND",
+      );
+      assert.ok(requested.some((url) => url.includes(".cloudfront.net")));
+      assert.equal(requested.filter(isAlias).length, 0);
+    });
+
+    it("are left out of the timestamp window search", async () => {
+      const provided = 7100;
+      const requested = [];
+      const fetchImpl = async (input) => {
+        const url = String(input);
+        requested.push(url);
+        if (isCdn(url)) return cdnResponse(403);
+        return cdnResponse(404);
+      };
+      await assert.rejects(
+        resolveM3U8(`video:aliaswindow_${streamId}_${provided}`, { fetch: fetchImpl, timestampWindow: 5 }),
+        (error) => error instanceof ResolveError && error.code === "NOT_FOUND",
+      );
+      // 11 seconds x 12 CloudFront hostnames, plus the initial exact-path probes.
+      assert.ok(requested.filter((url) => url.includes("/chunked/index-dvr.m3u8")).length >= 11 * 12);
+      assert.equal(requested.filter(isAlias).length, 0);
+    });
+
+    it("are used when no CloudFront hostname can be reached", async () => {
+      const timestamp = 7200;
+      const fetchImpl = async (input) => {
+        const url = String(input);
+        if (url.includes(".cloudfront.net")) throw new TypeError("fetch failed");
+        if (url.startsWith("https://vod-metro.twitch.tv/") && url.includes(`_${streamId}_${timestamp}/chunked/index-dvr.m3u8`)) {
+          return cdnResponse(200);
+        }
+        if (isCdn(url)) return cdnResponse(403);
+        return cdnResponse(404);
+      };
+      const messages = [];
+      const result = await resolveM3U8(`video:aliasfallback_${streamId}_${timestamp}`, {
+        fetch: fetchImpl,
+        timestampWindow: 0,
+        onProgress: (message) => messages.push(message),
+      });
+      assert.equal(result.kind, "hidden");
+      assert.ok(result.formats.every((format) => format.url.startsWith("https://vod-metro.twitch.tv/")));
+      assert.ok(messages.some((message) => /hostnames/.test(message)));
+    });
+  });
+
+  it("reports each resolution step through onProgress", async () => {
+    const timestamp = 7300;
+    const messages = [];
+    const fetchImpl = async (input) => {
+      const url = String(input);
+      if (isCdn(url)) return cdnResponse(403);
+      return cdnResponse(404);
+    };
+    await assert.rejects(
+      resolveM3U8(`video:progresschannel_${streamId}_${timestamp}`, {
+        fetch: fetchImpl,
+        timestampWindow: 3,
+        onProgress: (message) => messages.push(message),
+      }),
+      (error) => error instanceof ResolveError && error.code === "NOT_FOUND",
+    );
+    assert.ok(messages.some((message) => message.includes(String(timestamp))), messages.join("\n"));
+    assert.ok(messages.some((message) => /TwiTracker/.test(message)), messages.join("\n"));
+    assert.ok(messages.some((message) => /7 seconds/.test(message)), messages.join("\n"));
+  });
+
   it("reports a clear error when no timestamp source answers", async () => {
     const fetchImpl = async (input) => {
       const url = String(input);

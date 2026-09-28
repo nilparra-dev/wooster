@@ -2,6 +2,7 @@ import { stdout, stderr } from "node:process";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
+import { integerValue, optionValue } from "../args.js";
 import { copyToClipboard, openPlayer } from "../player-open.js";
 import { chooseFormat, ResolveError } from "../resolver.js";
 import { parseLiveChannel } from "./channel.js";
@@ -86,39 +87,31 @@ export async function liveCommand(args: string[]): Promise<void> {
         index += 1;
       }
     } else if (arg === "-q" || arg === "--quality") {
-      const value = args[index + 1];
-      if (!value || value.startsWith("-")) throw new ResolveError(`${arg} requires a value.`);
-      options.quality = value;
+      options.quality = optionValue(args, index, arg);
       index += 1;
     } else if (arg === "--port") {
-      const value = args[index + 1];
-      if (!value || value.startsWith("-")) throw new ResolveError(`${arg} requires a value.`);
-      const port = Number(value);
-      if (!Number.isInteger(port) || port < 0 || port > 65535) {
-        throw new ResolveError("Port must be an integer between 0 and 65535.", "INVALID_ARGUMENT");
-      }
-      options.port = port;
+      options.port = integerValue(args, index, arg, 0, 65535);
       index += 1;
     } else if (arg.startsWith("-")) {
-      throw new ResolveError(`Unknown live option: ${arg}`);
+      throw new ResolveError(`Unknown live option: ${arg}`, "INVALID_ARGUMENT");
     } else if (!options.input) {
       options.input = arg;
     } else {
-      throw new ResolveError(`Unexpected argument: ${arg}`);
+      throw new ResolveError(`Unexpected argument: ${arg}`, "INVALID_ARGUMENT");
     }
   }
-  if (!options.input) throw new ResolveError("Missing channel. Run `twitch-m3u8 live --help` for examples.");
+  if (!options.input) throw new ResolveError("Missing channel. Run `twitch-m3u8 live --help` for examples.", "INVALID_ARGUMENT");
   if (!options.watch) {
     // Player-only flags are silently ignored without --watch; fail loudly so
     // a typo does not look like a working ad filter or custom port.
-    if (options.withAds) throw new ResolveError("`--with-ads` only applies with `--watch`.");
-    if (options.noOpen) throw new ResolveError("`--no-open` only applies with `--watch`.");
-    if (options.port !== undefined) throw new ResolveError("`--port` only applies with `--watch`.");
+    if (options.withAds) throw new ResolveError("`--with-ads` only applies with `--watch`.", "INVALID_ARGUMENT");
+    if (options.noOpen) throw new ResolveError("`--no-open` only applies with `--watch`.", "INVALID_ARGUMENT");
+    if (options.port !== undefined) throw new ResolveError("`--port` only applies with `--watch`.", "INVALID_ARGUMENT");
   } else {
-    if (options.all) throw new ResolveError("`--all` prints URLs without `--watch`. Drop `--watch` to list qualities.");
-    if (options.json) throw new ResolveError("`--json` prints URLs without `--watch`. Drop `--watch` for JSON output.");
-    if (options.copy) throw new ResolveError("`--copy` copies the URL without `--watch`. Drop `--watch` to copy.");
-    if (options.open) throw new ResolveError("`--open` opens the raw URL without `--watch`. Drop `--watch` to open it.");
+    if (options.all) throw new ResolveError("`--all` prints URLs without `--watch`. Drop `--watch` to list qualities.", "INVALID_ARGUMENT");
+    if (options.json) throw new ResolveError("`--json` prints URLs without `--watch`. Drop `--watch` for JSON output.", "INVALID_ARGUMENT");
+    if (options.copy) throw new ResolveError("`--copy` copies the URL without `--watch`. Drop `--watch` to copy.", "INVALID_ARGUMENT");
+    if (options.open) throw new ResolveError("`--open` opens the raw URL without `--watch`. Drop `--watch` to open it.", "INVALID_ARGUMENT");
   }
   const channel = parseLiveChannel(options.input);
 

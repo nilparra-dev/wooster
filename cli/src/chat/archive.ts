@@ -387,7 +387,7 @@ export async function downloadChat(options: DownloadOptions): Promise<Manifest> 
   const manifestPath = join(directory, "manifest.json");
   const checkpointPath = join(directory, "checkpoint.json");
   const journal = join(directory, "pages.jsonl");
-  let manifest: Manifest = {
+  const manifest: Manifest = {
     schemaVersion: 1, vodId: options.vodId, video: null, coverage: "available-replay",
     status: "partial", messageCount: 0, pageCount: 0, updatedAt: new Date().toISOString(), error: null,
   };
