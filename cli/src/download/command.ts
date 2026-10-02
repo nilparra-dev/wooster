@@ -235,6 +235,16 @@ function defaultFileName(result: ResolveResult, mp4: boolean): string {
   return `${result.videoId}${extension}`;
 }
 
+/**
+ * Compare the muxed output with the playlist it came from. Returns the warning
+ * text when they differ by more than 1% of the playlist (2 seconds for short
+ * ones), a margin that covers container rounding but not missing segments.
+ */
+export function durationMismatch(expectedSeconds: number, actualSeconds: number): string | null {
+  if (Math.abs(actualSeconds - expectedSeconds) <= Math.max(2, expectedSeconds * 0.01)) return null;
+  return `the output duration (${actualSeconds.toFixed(1)}s) differs from the playlist (${expectedSeconds.toFixed(1)}s).`;
+}
+
 async function exists(path: string): Promise<boolean> {
   return stat(path).then(
     () => true,
@@ -573,12 +583,11 @@ export async function downloadCommand(args: string[]): Promise<void> {
       const expectedSeconds = playlist.totalDurationSeconds;
       const actualSeconds = tools.ffprobe ? probeDuration(tools.ffprobe, finalPath) : null;
       if (actualSeconds !== null) {
-        verified = Math.abs(actualSeconds - expectedSeconds) <= Math.max(2, expectedSeconds * 0.01);
-        if (!verified && stderr.isTTY) {
-          stderr.write(
-            `Warning: the output duration (${actualSeconds.toFixed(1)}s) differs from the playlist (${expectedSeconds.toFixed(1)}s).\n`,
-          );
-        }
+        const warning = durationMismatch(expectedSeconds, actualSeconds);
+        verified = warning === null;
+        // Not limited to a terminal: a script or a log is where a truncated
+        // download would otherwise pass unnoticed.
+        if (warning !== null) stderr.write(`Warning: ${warning}\n`);
       }
     }
 

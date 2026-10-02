@@ -4,7 +4,7 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { parseDownloadArgs, selectOutputPaths } from "../../dist/download/command.js";
+import { durationMismatch, parseDownloadArgs, selectOutputPaths } from "../../dist/download/command.js";
 import { DownloadError, downloadPlaylist, downloadSegments, fingerprintPlaylist } from "../../dist/download/fetcher.js";
 import { parseMasterPlaylist, parseMediaPlaylist } from "../../dist/download/playlist.js";
 
@@ -411,6 +411,24 @@ const hiddenResult = {
   canonicalTarget: "video:xqc_51582913581_1721686515",
   formats: [],
 };
+
+describe("download duration check", () => {
+  it("accepts container rounding: 2 seconds, or 1% of a long playlist", () => {
+    assert.equal(durationMismatch(60, 61.9), null);
+    assert.equal(durationMismatch(60, 58), null);
+    assert.equal(durationMismatch(10_000, 10_100), null);
+    assert.equal(durationMismatch(10_000, 9_900), null);
+  });
+
+  it("warns when the output lost or gained more than that", () => {
+    assert.equal(
+      durationMismatch(60, 57.5),
+      "the output duration (57.5s) differs from the playlist (60.0s).",
+    );
+    assert.match(durationMismatch(10_000, 9_899) ?? "", /9899\.0s.*10000\.0s/);
+    assert.match(durationMismatch(10_000, 10_101) ?? "", /10101\.0s/);
+  });
+});
 
 describe("download command output selection", () => {
   it("keeps the generated file name inside --output-dir", () => {

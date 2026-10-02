@@ -65,6 +65,8 @@ npm publish dates.
   rows with resolvable targets.
 - Downloads repair unset MPEG-TS timestamps that made VLC jump to ~26.5 hours.
 - Download segment URLs and redirects must stay on Twitch's media domains.
+- `download` warns about an output whose duration differs from the playlist
+  even when stderr is not a terminal, so scripts and logs see it.
 - The player keeps mute and volume across source changes.
 
 ### Removed
