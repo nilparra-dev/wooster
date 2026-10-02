@@ -449,7 +449,6 @@ export async function downloadSegments(options: SegmentDownloadOptions): Promise
       }
     }
 
-    const pending = new Map<number, Promise<void>>();
     const writeSegment = async (index: number): Promise<void> => {
       const segment = playlist.segments[index];
       if (!segment) return;
