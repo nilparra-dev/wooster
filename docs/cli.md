@@ -46,7 +46,7 @@ message. `--json` errors also carry a finer `error.code`.
 | 1 | Unexpected failure | `ERROR`, `FFMPEG_FAILED`, `OUTPUT_EXISTS` |
 | 2 | Invalid command line or input | `INVALID_ARGUMENT`, `INVALID_INPUT`, `CHANNEL_REQUIRED` |
 | 3 | Nothing found | `NOT_FOUND`, `TIMESTAMP_UNAVAILABLE`, `OFFLINE`, `QUALITY_UNAVAILABLE` |
-| 4 | Twitch or a tracker could not be reached | `NETWORK_ERROR`, `HTTP_ERROR` |
+| 4 | Twitch or a tracker could not be reached | `NETWORK_ERROR`, `HTTP_ERROR`, `CDN_UNREACHABLE` |
 | 130 | Interrupted with Ctrl+C | |
 
 ## Behind a proxy

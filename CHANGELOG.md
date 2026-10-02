@@ -63,6 +63,11 @@ npm publish dates.
   pages, so a throttled page no longer leaves rows without a stream ID or a
   start time. The list follows the API pagination, which gives `--limit` more
   rows with resolvable targets.
+- A hidden VOD is no longer reported as deleted when Twitch's VOD servers were
+  throttling or unreachable. If none of them gives a definitive answer the
+  error is `CDN_UNREACHABLE` with exit code 4, where it used to be `NOT_FOUND`
+  with exit code 3, and a `NOT_FOUND` after partial answers says how many
+  requests went unanswered.
 - Downloads repair unset MPEG-TS timestamps that made VLC jump to ~26.5 hours.
 - Download segment URLs and redirects must stay on Twitch's media domains.
 - The player keeps mute and volume across source changes.
