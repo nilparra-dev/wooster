@@ -140,10 +140,16 @@ async function downloadArchive(options: {
 /**
  * `tar -xf` handles zip on Windows and macOS (bsdtar) and tar.xz on Linux
  * (GNU tar), so provisioning needs no archive library.
+ *
+ * Windows runs its own tar by full path. A shell such as Git Bash puts MSYS GNU
+ * tar first on PATH, and that one reads `C:\...` as a remote host and cannot
+ * open a zip.
  */
 async function extractArchive(archive: string, destination: string): Promise<void> {
   await mkdir(destination, { recursive: true });
-  const result = spawnSync("tar", ["-xf", archive, "-C", destination], {
+  const tar =
+    process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  const result = spawnSync(tar, ["-xf", archive, "-C", destination], {
     encoding: "utf8",
     timeout: EXTRACT_TIMEOUT_MS,
     windowsHide: true,
