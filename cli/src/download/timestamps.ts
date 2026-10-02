@@ -143,7 +143,7 @@ function repairPcrs(buffer: Buffer, events: PcrEvent[], streams: Map<number, Pcr
     if (!event) continue;
     const state = streams.get(event.pid) ?? { last: null, step: null };
     if (event.value === null) {
-      let replacement: number | null = null;
+      let replacement: number | null;
       if (state.last !== null && state.step !== null) {
         replacement = state.last + state.step;
       } else {
