@@ -66,6 +66,9 @@ npm publish dates.
 - Downloads repair unset MPEG-TS timestamps that made VLC jump to ~26.5 hours.
 - Download segment URLs and redirects must stay on Twitch's media domains.
 - The player keeps mute and volume across source changes.
+- Playlists, tracker pages and Twitch API answers are read with an 8 MB limit,
+  and a segment that declares no length is cut off at the segment limit
+  instead of being buffered whole.
 
 ### Removed
 

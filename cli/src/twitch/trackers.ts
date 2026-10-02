@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { isRecord } from "../json.js";
+import { BodyTooLargeError, readTextBody } from "../net/body.js";
 
 const BROWSER_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
@@ -146,7 +147,7 @@ async function fetchText(url: string, options: TrackerOptions): Promise<string> 
         redirect: "follow",
         signal,
       });
-      if (candidate.ok) return await candidate.text();
+      if (candidate.ok) return await readTextBody(candidate);
       const status = candidate.status;
       await candidate.body?.cancel();
       failure = { code: "HTTP_ERROR", detail: `Tracker returned HTTP ${status}` };
@@ -156,6 +157,8 @@ async function fetchText(url: string, options: TrackerOptions): Promise<string> 
       options.signal?.throwIfAborted();
       const detail = error instanceof Error ? error.message : String(error);
       failure = { code: "NETWORK_ERROR", detail: `Tracker request failed: ${detail}` };
+      // The same page would be just as large on the next attempt.
+      if (error instanceof BodyTooLargeError) break;
     }
     if (attempt + 1 < attempts) {
       await delay(retryDelayMs(response, attempt, baseMs), undefined, { signal: options.signal });

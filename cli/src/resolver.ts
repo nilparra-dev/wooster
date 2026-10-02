@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { mapWithConcurrency } from "./concurrency.js";
 import { getString, isRecord } from "./json.js";
+import { readTextBody } from "./net/body.js";
 import { ALIAS_VOD_DOMAINS, CLOUDFRONT_VOD_DOMAINS, fetchAllowedMedia } from "./net/media.js";
 import { fetchVideoMetadata, GqlClient, TWITCH_WEB_CLIENT_ID } from "./twitch/gql.js";
 import {
@@ -575,7 +576,7 @@ async function resolvePublicManifest(videoId: string, ctx: ProbeContext): Promis
     ctx,
   );
   if (!tokenResponse.ok) throw new ResolveError(`Twitch returned HTTP ${tokenResponse.status}.`, "HTTP_ERROR");
-  const tokenPayload: unknown = await tokenResponse.json();
+  const tokenPayload: unknown = JSON.parse(await readTextBody(tokenResponse));
   if (!isRecord(tokenPayload) || !isRecord(tokenPayload.data)) {
     throw new ResolveError("Twitch did not return a playback token.", "NOT_FOUND");
   }
@@ -601,7 +602,7 @@ async function resolvePublicManifest(videoId: string, ctx: ProbeContext): Promis
   // leave Twitch's media hosts.
   const manifestResponse = await mediaProbe(masterUrl, {}, ctx);
   if (!manifestResponse.ok) throw new ResolveError(`The manifest returned HTTP ${manifestResponse.status}.`, "HTTP_ERROR");
-  const formats = parseMasterManifest(await manifestResponse.text());
+  const formats = parseMasterManifest(await readTextBody(manifestResponse));
   if (formats.length === 0) throw new ResolveError("The manifest contains no playable qualities.", "NOT_FOUND");
   return { kind: "public", source: "twitch", videoId, masterUrl, formats };
 }

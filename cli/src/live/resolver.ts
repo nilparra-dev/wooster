@@ -1,3 +1,4 @@
+import { readTextBody } from "../net/body.js";
 import { fetchAllowedMedia } from "../net/media.js";
 import { getString, isRecord } from "../json.js";
 import { parseMasterManifest, ResolveError } from "../resolver.js";
@@ -44,7 +45,7 @@ export async function resolveLiveM3U8(rawInput: string, options: ResolveOptions 
     signal: withTimeout(options.signal),
   });
   if (!tokenResponse.ok) throw new ResolveError(`Twitch returned HTTP ${tokenResponse.status}.`, "HTTP_ERROR");
-  const payload: unknown = await tokenResponse.json();
+  const payload: unknown = JSON.parse(await readTextBody(tokenResponse));
   if (!isRecord(payload) || !isRecord(payload.data)) {
     throw new ResolveError(`"${channel}" is not live right now, or Twitch refused playback access.`, "OFFLINE");
   }
@@ -82,7 +83,7 @@ export async function resolveLiveM3U8(rawInput: string, options: ResolveOptions 
     await manifestResponse.body?.cancel();
     throw new ResolveError(`The live manifest returned HTTP ${manifestResponse.status}.`, "HTTP_ERROR");
   }
-  const formats = parseMasterManifest(await manifestResponse.text());
+  const formats = parseMasterManifest(await readTextBody(manifestResponse));
   if (formats.length === 0) throw new ResolveError("The live manifest contains no playable qualities.", "OFFLINE");
   return { kind: "live", source: "twitch", channel, masterUrl, formats };
 }
