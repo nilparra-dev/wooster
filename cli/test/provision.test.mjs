@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -147,6 +148,47 @@ describe("ffmpeg provisioning", () => {
       assert.deepEqual(await readdir(directory), []);
     } finally {
       await server.close();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("extracts with Windows tar even when another tar is first on PATH", { skip: process.platform !== "win32" }, async () => {
+    const directory = await mkdtemp(join(tmpdir(), "twitch-provision-test-"));
+    const systemTar = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
+    const originalPath = process.env.PATH;
+    let server;
+    try {
+      const source = join(directory, "source");
+      await mkdir(join(source, "bin"), { recursive: true });
+      await writeFile(join(source, "bin", "ffmpeg.exe"), "fake binary");
+      const archive = join(directory, "release.zip");
+      const packed = spawnSync(systemTar, ["-a", "-cf", archive, "-C", source, "bin"], { encoding: "utf8" });
+      assert.equal(packed.status, 0, packed.stderr);
+      const body = await readFile(archive);
+      server = await serve(body);
+
+      // Stands in for the MSYS tar that Git Bash puts first on PATH: any
+      // executable named tar that cannot extract the archive.
+      const shadow = join(directory, "shadow");
+      await mkdir(shadow);
+      await copyFile(process.execPath, join(shadow, "tar.exe"));
+      process.env.PATH = `${shadow};${originalPath}`;
+
+      const tools = await provisionFfmpeg({
+        cacheDir: join(directory, "cache"),
+        release: {
+          id: "zip-release",
+          url: server.url,
+          sha256: createHash("sha256").update(body).digest("hex"),
+          archive: "zip",
+        },
+        probe: fakeProbe,
+      });
+
+      assert.equal(await exists(tools.ffmpeg), true);
+    } finally {
+      process.env.PATH = originalPath;
+      await server?.close();
       await rm(directory, { recursive: true, force: true });
     }
   });
