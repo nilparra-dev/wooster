@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { FfmpegError } from "../../dist/download/ffmpeg.js";
-import { provisionFfmpeg, releaseFor, sha256File } from "../../dist/download/provision.js";
+import { pinnedReleases, provisionFfmpeg, releaseFor, sha256File } from "../../dist/download/provision.js";
 
 const exists = (path) =>
   stat(path).then(
@@ -57,6 +57,17 @@ describe("ffmpeg release matrix", () => {
     }
     assert.equal(releaseFor("darwin", "arm64"), undefined);
     assert.equal(releaseFor("freebsd", "x64"), undefined);
+  });
+
+  it("pins a month-end build, the only kind BtbN keeps past 14 days", () => {
+    for (const release of pinnedReleases()) {
+      const tag = /\/download\/autobuild-(\d{4})-(\d{2})-(\d{2})-/.exec(release.url);
+      assert.ok(tag, `${release.url} should name a dated autobuild tag`);
+      const [year, month, day] = tag.slice(1).map(Number);
+      // Day 0 of the next month is the last day of this one.
+      const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+      assert.equal(day, lastDay, `${release.url} is a daily build that BtbN deletes after 14 days`);
+    }
   });
 
   it("computes the sha256 of a file", async () => {

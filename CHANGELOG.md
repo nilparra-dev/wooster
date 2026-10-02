@@ -29,7 +29,8 @@ npm publish dates.
   when nothing is found and 4 when Twitch or a tracker cannot be reached.
 - `npm run lint` runs ESLint over the CLI, and CI enforces it.
 - A daily canary workflow resolves a real recent VOD, both by its public ID and
-  by its rebuilt hidden path, and opens an issue when that stops working.
+  by its rebuilt hidden path, and opens an issue when that stops working. It
+  also requests every archive pinned for `--install-ffmpeg`.
 
 ### Changed
 

@@ -7,6 +7,11 @@
  * The release matrix below is the only place that needs an update to add or
  * bump a platform. Checksums come from the release's own `checksums.sha256`
  * and were verified against the downloaded archive before being pinned here.
+ *
+ * BtbN deletes its daily builds after 14 days and keeps only the last build of
+ * each month, for two years. Pin a month-end tag: any other tag starts
+ * answering 404 two weeks later. The canary workflow requests every pinned
+ * archive daily, so an expired pin is reported before users meet it.
  */
 
 import { spawnSync } from "node:child_process";
@@ -18,12 +23,12 @@ import { join, resolve } from "node:path";
 
 import { FfmpegError, findFfmpeg, type FfmpegTools } from "./ffmpeg.js";
 
-/** The win64 LGPL zip is ~163 MB; anything much larger is not our release. */
+/** The win64 LGPL zip is ~147 MB; anything much larger is not our release. */
 const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024;
 const EXTRACT_TIMEOUT_MS = 5 * 60_000;
 
-const BTBN_TAG = "autobuild-2026-09-11-13-20";
-const BTBN_VERSION = "n9.0.1-29-gad500d59cb";
+const BTBN_TAG = "autobuild-2026-08-31-13-27";
+const BTBN_VERSION = "n9.0.1-11-ge47273f4d9";
 
 export interface FfmpegRelease {
   /** Cache folder name; stable for a pinned release and platform. */
@@ -50,35 +55,40 @@ const RELEASES: Readonly<Record<string, FfmpegRelease>> = {
   "win32-x64": btbnRelease(
     "win32",
     "x64",
-    "ffmpeg-n9.0.1-29-gad500d59cb-win64-lgpl-9.0.zip",
-    "2ed9c183065b944197d771eb6486fe7e4627b28059a9b32e852f3a69495fc9b5",
+    "ffmpeg-n9.0.1-11-ge47273f4d9-win64-lgpl-9.0.zip",
+    "2484854ad6988d34560f4e6ea7a6ecb9dde0af7c229d2591815d056b04ec4f56",
     "zip",
   ),
   "win32-arm64": btbnRelease(
     "win32",
     "arm64",
-    "ffmpeg-n9.0.1-29-gad500d59cb-winarm64-lgpl-9.0.zip",
-    "c2b72737f40e0f6206f61c885e011753c5b6307e9d63a2db59a3e949fe24b345",
+    "ffmpeg-n9.0.1-11-ge47273f4d9-winarm64-lgpl-9.0.zip",
+    "ae94766eba8d657cd16704b486ee0cbb60aac1096af16a0c7e080858825eec58",
     "zip",
   ),
   "linux-x64": btbnRelease(
     "linux",
     "x64",
-    "ffmpeg-n9.0.1-29-gad500d59cb-linux64-lgpl-9.0.tar.xz",
-    "b8f6a666dac99d2ce2010e35f192ab9696bca4c258b13e33fedf1383defff1ea",
+    "ffmpeg-n9.0.1-11-ge47273f4d9-linux64-lgpl-9.0.tar.xz",
+    "204fc02692b11249c3e688ad18538ce2939129a1fc6abc32a6b2638a024496cf",
     "tar.xz",
   ),
   "linux-arm64": btbnRelease(
     "linux",
     "arm64",
-    "ffmpeg-n9.0.1-29-gad500d59cb-linuxarm64-lgpl-9.0.tar.xz",
-    "ee6b813257af01e125c23740d282fdbc9d656874103ce898f708bdc753b95936",
+    "ffmpeg-n9.0.1-11-ge47273f4d9-linuxarm64-lgpl-9.0.tar.xz",
+    "a65d190b2391420583546eb8be0aa36b4c219bbc0060bab3f4fa618f178151c5",
     "tar.xz",
   ),
 };
 
 export function releaseFor(platform: string, arch: string): FfmpegRelease | undefined {
   return RELEASES[`${platform}-${arch}`];
+}
+
+/** Every pinned release, for checks that must cover the whole matrix. */
+export function pinnedReleases(): FfmpegRelease[] {
+  return Object.values(RELEASES);
 }
 
 export function defaultCacheDir(): string {

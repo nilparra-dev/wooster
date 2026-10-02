@@ -1,8 +1,8 @@
 name: Canary
 
 # The test suite mocks every network request, so it cannot notice when Twitch
-# changes its API or its CDN. This job resolves a real, recent VOD once a day
-# and opens an issue when that stops working.
+# changes its API or its CDN, or when a pinned ffmpeg archive is deleted. These
+# jobs make the real requests once a day and open an issue when one fails.
 on:
   schedule:
     - cron: "17 6 * * *"
@@ -51,4 +51,42 @@ jobs:
             gh issue create --label canary \
               --title "Canary: resolving a live Twitch VOD failed" \
               --body "Resolving a recent public VOD failed, so Twitch's API or CDN may have changed. See $RUN_URL"
+          fi
+
+  ffmpeg:
+    name: Request the pinned ffmpeg archives
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Check the pinned archives
+        run: node scripts/canary-ffmpeg.mjs
+
+      - name: Report the failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create canary-ffmpeg --description "Pinned ffmpeg archive check failed" --color B60205 || true
+          existing=$(gh issue list --label canary-ffmpeg --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "The canary failed again: $RUN_URL"
+          else
+            gh issue create --label canary-ffmpeg               --title "Canary: a pinned ffmpeg archive is no longer available"               --body "--install-ffmpeg downloads a pinned archive that stopped answering. Repin cli/src/download/provision.ts to a month-end BtbN build. See $RUN_URL"
           fi
