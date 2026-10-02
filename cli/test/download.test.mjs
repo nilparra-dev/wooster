@@ -392,6 +392,38 @@ describe("segment directory downloader", () => {
     assert.equal(result.reused, 1);
     assert.equal(await readFile(join(directory, "1.ts"), "utf8"), "B");
   });
+
+  it("waits for the segments in flight before reporting a failure", async () => {
+    const directory = join(await workdir(), "segments");
+    const playlist = playlistWith("#EXTINF:10,\na.ts\n#EXTINF:10,\nb.ts");
+    let inFlight = 0;
+    // a.ts fails while b.ts is still being received. b.ts ignores the abort,
+    // like a response whose body already arrived.
+    const fakeFetch = async (url) => {
+      const key = String(url).split("/").at(-1);
+      if (key === "a.ts") {
+        await new Promise((done) => setTimeout(done, 10));
+        return new Response("", { status: 404 });
+      }
+      inFlight += 1;
+      try {
+        await new Promise((done) => setTimeout(done, 80));
+        return new Response("B", { status: 200 });
+      } finally {
+        inFlight -= 1;
+      }
+    };
+
+    await assert.rejects(
+      downloadSegments({ playlist, directory, fetch: fakeFetch, attempts: 1, concurrency: 2, retryDelayMs: 1 }),
+      (error) => error instanceof DownloadError && error.code === "SEGMENT_HTTP_ERROR",
+    );
+
+    // The caller may now delete or reuse the directory, so nothing may still
+    // be writing into it.
+    assert.equal(inFlight, 0);
+    assert.equal(await exists(join(directory, "1.ts.part")), false);
+  });
 });
 
 const publicResult = {
