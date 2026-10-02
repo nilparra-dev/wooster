@@ -133,12 +133,11 @@ async function fetchText(url: string, options: TrackerOptions): Promise<string> 
   const baseMs = options.retryDelayMs ?? DEFAULT_RETRY_DELAY_MS;
   let failure = { code: "NETWORK_ERROR", detail: "Tracker request failed" };
   let attemptsMade = 0;
-  let response: Response | null = null;
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     options.signal?.throwIfAborted();
     attemptsMade = attempt + 1;
-    response = null;
+    let response: Response | null = null;
     const timeout = AbortSignal.timeout(options.timeoutMs ?? 12_000);
     const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
     try {

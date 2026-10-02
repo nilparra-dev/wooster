@@ -62,7 +62,7 @@ be reconstructed, and chat availability is independent of video recovery.
     // Live channels have their own server mode with ad filtering and token
     // refresh. The VOD player would play them with ads and without refresh,
     // so redirect instead of silently degrading.
-    let kind: string | null = null;
+    let kind: string | null;
     try {
       kind = parseInput(options.input).kind;
     } catch {

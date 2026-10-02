@@ -64,7 +64,7 @@ async function readPlaylist(response: Response): Promise<string> {
   try {
     return await readTextBody(response);
   } catch (error) {
-    if (error instanceof BodyTooLargeError) throw new Error("Playlist is too large.");
+    if (error instanceof BodyTooLargeError) throw new Error("Playlist is too large.", { cause: error });
     throw error;
   }
 }
