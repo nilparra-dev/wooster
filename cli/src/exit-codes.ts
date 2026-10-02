@@ -27,7 +27,13 @@ const NOT_FOUND_CODES: ReadonlySet<string> = new Set([
   "CHAT_UNAVAILABLE",
 ]);
 
-const NETWORK_CODES: ReadonlySet<string> = new Set(["HTTP_ERROR", "NETWORK_ERROR", "SEGMENT_HTTP_ERROR", "GRAPHQL_ERROR"]);
+const NETWORK_CODES: ReadonlySet<string> = new Set([
+  "HTTP_ERROR",
+  "NETWORK_ERROR",
+  "CDN_UNREACHABLE",
+  "SEGMENT_HTTP_ERROR",
+  "GRAPHQL_ERROR",
+]);
 
 /** Exit code for an error `code`; anything unclassified is a generic failure. */
 export function exitCodeFor(code: string | undefined): number {

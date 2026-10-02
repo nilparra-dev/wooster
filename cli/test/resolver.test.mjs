@@ -333,6 +333,35 @@ describe("hidden VOD resolution chain", () => {
     assert.ok(result.formats.some((format) => format.id === "Source"));
   });
 
+  it("reports an unreachable CDN instead of a missing VOD when no probe is answered", async () => {
+    const timestamp = 6100;
+    // Throttled everywhere: nothing was learned about the VOD.
+    const fetchImpl = async () => cdnResponse(429);
+    await assert.rejects(
+      resolveM3U8(`video:throttledchannel_${streamId}_${timestamp}`, { fetch: fetchImpl, timestampWindow: 2 }),
+      (error) =>
+        error instanceof ResolveError && error.code === "CDN_UNREACHABLE" && !/deleted/.test(error.message),
+    );
+  });
+
+  it("says how many probes went unanswered when the VOD is not found", async () => {
+    const timestamp = 6200;
+    const silent = "d2nvs31859zcd8.cloudfront.net";
+    const fetchImpl = async (input) => {
+      const url = String(input);
+      if (new URL(url).hostname === silent) return cdnResponse(503);
+      if (isCdn(url)) return cdnResponse(403);
+      return cdnResponse(404);
+    };
+    await assert.rejects(
+      resolveM3U8(`video:partialchannel_${streamId}_${timestamp}`, { fetch: fetchImpl, timestampWindow: 0 }),
+      (error) =>
+        error instanceof ResolveError &&
+        error.code === "NOT_FOUND" &&
+        /4 of 48 requests got no definitive answer/.test(error.message),
+    );
+  });
+
   describe("Twitch alias hostnames", () => {
     const aliasHosts = ["vod-secure.twitch.tv", "vod-metro.twitch.tv", "vod-pop-secure.twitch.tv"];
     const isAlias = (url) => aliasHosts.some((host) => url.startsWith(`https://${host}/`));

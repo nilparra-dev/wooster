@@ -100,6 +100,7 @@ describe("exit codes", () => {
     assert.equal(exitCodeFor("OFFLINE"), 3);
     assert.equal(exitCodeFor("HTTP_ERROR"), 4);
     assert.equal(exitCodeFor("NETWORK_ERROR"), 4);
+    assert.equal(exitCodeFor("CDN_UNREACHABLE"), 4);
   });
 
   it("keeps 1 for anything unclassified", () => {

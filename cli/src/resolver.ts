@@ -86,6 +86,12 @@ interface ProbeContext {
    * The context lives for one resolution, so the switch never outlives it.
    */
   network: "direct" | "aliases";
+  /**
+   * How many media probes of this resolution got a definitive answer and how
+   * many did not (throttled, server error, timeout, unreachable). A failure is
+   * only reported as "not found" when the CDN actually answered.
+   */
+  probes: { answered: number; unanswered: number };
 }
 
 function progress(ctx: ProbeContext, message: string): void {
@@ -235,6 +241,7 @@ function createContext(options: ResolveOptions): ProbeContext {
     timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     fetch: options.fetch ?? fetch,
     network: "direct",
+    probes: { answered: 0, unanswered: 0 },
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.onProgress ? { onProgress: options.onProgress } : {}),
   };
@@ -309,9 +316,17 @@ async function probeUrl(url: string, ctx: ProbeContext): Promise<boolean | null>
 async function probeAvailability(url: string, ctx: ProbeContext): Promise<boolean | null> {
   const now = Date.now();
   const cached = readProbeCache(url, now);
-  if (cached !== null) return cached;
+  if (cached !== null) {
+    ctx.probes.answered += 1;
+    return cached;
+  }
   const available = await probeUrl(url, ctx);
-  if (available !== null) writeProbeCache(url, available, now);
+  if (available === null) {
+    ctx.probes.unanswered += 1;
+  } else {
+    ctx.probes.answered += 1;
+    writeProbeCache(url, available, now);
+  }
   return available;
 }
 
@@ -543,6 +558,17 @@ async function resolveHiddenTarget(target: HiddenTarget): Promise<ResolveResult>
     }
   }
 
+  // Every search above treats an unanswered probe as "not here". When nothing
+  // answered at all, the searches learned nothing about the VOD, so say that
+  // instead of claiming the media is gone.
+  const { answered, unanswered } = ctx.probes;
+  if (answered === 0 && unanswered > 0) {
+    throw new ResolveError(
+      `Twitch's VOD servers gave no definitive answer to any of ${unanswered} requests (throttled, failing or unreachable), ` +
+        `so this VOD could be neither found nor ruled out. Try again in a few minutes.`,
+      "CDN_UNREACHABLE",
+    );
+  }
   if (provided === undefined) {
     throw new ResolveError(
       `Could not determine the start time of ${channel}/${streamId}. Tracker lookups failed or are blocked; ` +
@@ -553,7 +579,10 @@ async function resolveHiddenTarget(target: HiddenTarget): Promise<ResolveResult>
   const window = options.timestampWindow ?? DEFAULT_TIMESTAMP_WINDOW;
   throw new ResolveError(
     `The VOD was not found on any known Twitch distribution, even after checking exact tracker timestamps` +
-      `${window > 0 ? ` and a ±${window}s window` : ""}. It may have been deleted, expired, or its media was never stored.`,
+      `${window > 0 ? ` and a ±${window}s window` : ""}. It may have been deleted, expired, or its media was never stored.` +
+      (unanswered > 0
+        ? ` ${unanswered} of ${answered + unanswered} requests got no definitive answer, so trying again may still find it.`
+        : ""),
     "NOT_FOUND",
   );
 }
