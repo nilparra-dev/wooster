@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { isRecord } from "../json.js";
+import { readTextBody } from "../net/body.js";
 
 export const TWITCH_GQL_URL = "https://gql.twitch.tv/gql";
 export const TWITCH_WEB_CLIENT_ID = "kimne78kx3ncx6brgo4mv6wki5h1ko";
@@ -72,7 +73,7 @@ export async function queryTwitchGql(
         }
         throw new Error(`Twitch returned HTTP ${response.status}.`);
       }
-      const payload = record(await response.json());
+      const payload = record(JSON.parse(await readTextBody(response)));
       if (Array.isArray(payload.errors) && payload.errors.length > 0) {
         throw (
           options.graphqlErrors?.(payload.errors) ??

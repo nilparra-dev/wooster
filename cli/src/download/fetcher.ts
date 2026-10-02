@@ -3,6 +3,7 @@ import { mkdir, open, readFile, rename, rm, stat, truncate, writeFile } from "no
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 
+import { BodyTooLargeError, readBytesBody } from "../net/body.js";
 import { allowedMediaUrl, fetchMedia } from "../net/media.js";
 import type { MediaPlaylist } from "./playlist.js";
 import { createTimestampRepair } from "./timestamps.js";
@@ -184,14 +185,17 @@ async function fetchSegment(options: FetchSegmentOptions): Promise<Buffer> {
             "SEGMENT_TOO_LARGE",
           );
         }
-        const body = Buffer.from(await response.arrayBuffer());
-        if (body.length > options.maxSegmentBytes) {
+        // Content-Length is optional, so the limit is enforced while reading:
+        // an oversized body is cut off instead of being buffered first.
+        try {
+          return await readBytesBody(response, options.maxSegmentBytes);
+        } catch (error) {
+          if (!(error instanceof BodyTooLargeError)) throw error;
           throw new DownloadError(
             `Segment ${index + 1} exceeds the ${Math.round(options.maxSegmentBytes / (1024 * 1024))} MB size limit.`,
             "SEGMENT_TOO_LARGE",
           );
         }
-        return body;
       }
       const status = response.status;
       await response.body?.cancel();

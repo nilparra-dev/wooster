@@ -16,6 +16,7 @@ import { resolveLiveM3U8 } from "../live/resolver.js";
 import { downloadChat } from "../chat/archive.js";
 import { TwitchChatClient } from "../chat/twitch.js";
 import { ChatError, record, string } from "../chat/model.js";
+import { BodyTooLargeError, readTextBody } from "../net/body.js";
 import { fetchMedia } from "../net/media.js";
 import { byteRange, MediaRegistry } from "./media.js";
 import type { ResolveOptions, ResolveResult } from "../types.js";
@@ -60,20 +61,11 @@ const json = (response: ServerResponse, status: number, body: unknown) => {
 };
 async function readPlaylist(response: Response): Promise<string> {
   if (!response.body) throw new Error("Empty playlist.");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let size = 0;
-  let text = "";
   try {
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) return text + decoder.decode();
-      size += chunk.value.byteLength;
-      if (size > 8 * 1024 * 1024) throw new Error("Playlist is too large.");
-      text += decoder.decode(chunk.value, { stream: true });
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
+    return await readTextBody(response);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) throw new Error("Playlist is too large.");
+    throw error;
   }
 }
 

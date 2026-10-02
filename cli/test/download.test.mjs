@@ -236,6 +236,38 @@ a.m4s
     );
   });
 
+  it("stops receiving an oversized segment that declares no length", async () => {
+    const directory = await workdir();
+    const playlist = playlistWith("#EXTINF:10,\na.ts");
+    let served = 0;
+    const endless = () =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            if (served === 64) {
+              controller.close();
+              return;
+            }
+            served += 1;
+            controller.enqueue(new Uint8Array(1024));
+          },
+        }),
+        { status: 200 },
+      );
+    await assert.rejects(
+      downloadPlaylist({
+        playlist,
+        output: join(directory, "out.ts"),
+        attempts: 1,
+        retryDelayMs: 1,
+        maxSegmentBytes: 2048,
+        fetch: async () => endless(),
+      }),
+      (error) => error instanceof DownloadError && error.code === "SEGMENT_TOO_LARGE",
+    );
+    assert.ok(served <= 4, `received ${served} of 64 chunks before stopping`);
+  });
+
   it("resumes a partial download written before the hashed fingerprint", async () => {
     const directory = await workdir();
     const output = join(directory, "out.ts");

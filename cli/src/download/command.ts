@@ -5,6 +5,7 @@ import { stderr, stdout } from "node:process";
 import { choiceValue, integerValue, optionValue } from "../args.js";
 import { exitCodeFor, EXIT_INTERRUPTED } from "../exit-codes.js";
 import { chooseFormat, DEFAULT_TIMESTAMP_WINDOW, ResolveError, resolveM3U8 } from "../resolver.js";
+import { BodyTooLargeError, readTextBody } from "../net/body.js";
 import { fetchMedia } from "../net/media.js";
 import type { ResolveResult } from "../types.js";
 import { assertAllowedMediaUrl, DownloadError, downloadPlaylist } from "./fetcher.js";
@@ -191,7 +192,12 @@ async function fetchText(url: string, signal: AbortSignal): Promise<string> {
     await response.body?.cancel();
     throw new ResolveError(`The playlist returned HTTP ${response.status}.`, "HTTP_ERROR");
   }
-  return response.text();
+  try {
+    return await readTextBody(response);
+  } catch (error) {
+    if (error instanceof BodyTooLargeError) throw new ResolveError("The playlist is too large.", "HTTP_ERROR");
+    throw error;
+  }
 }
 
 /**

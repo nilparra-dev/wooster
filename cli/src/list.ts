@@ -3,6 +3,7 @@ import { createInterface } from "node:readline/promises";
 
 import { integerValue, optionValue } from "./args.js";
 import { mapWithConcurrency } from "./concurrency.js";
+import { readTextBody } from "./net/body.js";
 import { fetchMedia } from "./net/media.js";
 import { chooseFormat, DEFAULT_TIMESTAMP_WINDOW, ResolveError, resolveM3U8 } from "./resolver.js";
 import { downloadCommand } from "./download/command.js";
@@ -187,7 +188,7 @@ export async function measurePlaylistDuration(
       await response.body?.cancel();
       return null;
     }
-    const text = await response.text();
+    const text = await readTextBody(response);
     let total = 0;
     let found = false;
     for (const match of text.matchAll(/#EXTINF:([\d.]+)/g)) {
