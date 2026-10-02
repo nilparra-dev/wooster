@@ -3,7 +3,6 @@ import {
   MessageSquare,
   Search,
   X,
-  Github,
   History,
   ArrowRight,
   ChevronDown,
@@ -12,6 +11,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 
 import type { ChatMessage } from "./archive";
+import { GithubIcon } from "./GithubIcon";
 import { useChatReplay } from "./useChatReplay";
 import { usePositionPersistence } from "./usePositionPersistence";
 import { usePlayerBridge } from "./session";
@@ -269,7 +269,7 @@ export function ReplayPlayer() {
             title="Source on GitHub"
             className="vod-icon"
           >
-            <Github size={19} />
+            <GithubIcon size={19} />
           </a>
         </div>
       </header>
