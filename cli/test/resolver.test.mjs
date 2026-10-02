@@ -346,10 +346,10 @@ describe("hidden VOD resolution chain", () => {
 
   it("says how many probes went unanswered when the VOD is not found", async () => {
     const timestamp = 6200;
-    const silent = "https://d2nvs31859zcd8.cloudfront.net";
+    const silent = "d2nvs31859zcd8.cloudfront.net";
     const fetchImpl = async (input) => {
       const url = String(input);
-      if (url.startsWith(silent)) return cdnResponse(503);
+      if (new URL(url).hostname === silent) return cdnResponse(503);
       if (isCdn(url)) return cdnResponse(403);
       return cdnResponse(404);
     };
