@@ -19,6 +19,9 @@ export default tseslint.config(
       "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", caughtErrors: "none" }],
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
+      // A shadowed binding silently detaches cleanup code from the state it
+      // was written for, as happened with the in-flight segment map.
+      "@typescript-eslint/no-shadow": "error",
     },
   },
   {
