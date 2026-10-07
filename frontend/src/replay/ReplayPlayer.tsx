@@ -192,10 +192,10 @@ export function ReplayPlayer() {
       className={`replay-kit${theater ? " is-theater" : ""}${chatVisible ? "" : " chat-hidden"}`}
     >
       <header className="replay-topbar">
-        <a className="replay-brand" href="./" aria-label="Twitch VOD Replay home">
+        <a className="replay-brand" href="./" aria-label="Wooster home">
           <History size={26} strokeWidth={2.3} />
           <strong>
-            twitch<span>vod</span>
+            woo<span>ster</span>
           </strong>
         </a>
         <form

@@ -48,6 +48,30 @@ jobs:
       - name: Build
         run: npm run build
 
+  cli-node-next:
+    # engines allows every release from Node 22 up, so the newest LTS line is
+    # checked too. One platform is enough: the matrix above covers the
+    # filesystem differences, this job covers the runtime.
+    name: CLI test (Node 24)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
   package:
     name: Package smoke test
     runs-on: ubuntu-latest
