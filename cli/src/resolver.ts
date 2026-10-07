@@ -4,7 +4,9 @@ import { mapWithConcurrency } from "./concurrency.js";
 import { getString, isRecord } from "./json.js";
 import { readTextBody } from "./net/body.js";
 import { ALIAS_VOD_DOMAINS, CLOUDFRONT_VOD_DOMAINS, fetchAllowedMedia } from "./net/media.js";
-import { fetchVideoMetadata, GqlClient, TWITCH_WEB_CLIENT_ID } from "./twitch/gql.js";
+import { fetchVideoMetadata, GqlClient } from "./twitch/gql.js";
+import { queryPlaybackToken } from "./twitch/playback.js";
+import { GqlQueryError, type GqlQueryOptions } from "./twitch/query.js";
 import {
   fetchSullyGnomeStreamTime,
   fetchStreamerVitalsStreams,
@@ -253,10 +255,8 @@ function trackerOptions(ctx: ProbeContext): TrackerOptions {
   return ctx.signal ? { ...options, signal: ctx.signal } : options;
 }
 
-async function request(url: string, init: RequestInit, ctx: ProbeContext): Promise<Response> {
-  const timeout = AbortSignal.timeout(ctx.timeoutMs);
-  const signal = ctx.signal ? AbortSignal.any([timeout, ctx.signal]) : timeout;
-  return ctx.fetch(url, { ...init, signal });
+function gqlOptions(ctx: ProbeContext): GqlQueryOptions {
+  return { fetch: ctx.fetch, timeoutMs: ctx.timeoutMs, ...(ctx.signal ? { signal: ctx.signal } : {}) };
 }
 
 /**
@@ -590,26 +590,18 @@ async function resolveHiddenTarget(target: HiddenTarget): Promise<ResolveResult>
 
 async function resolvePublicManifest(videoId: string, ctx: ProbeContext): Promise<ResolveResult> {
   progress(ctx, "Requesting a playback token from Twitch.");
-  const query = `query PlaybackAccessToken_Template($login: String!, $isLive: Boolean!, $vodID: ID!, $isVod: Boolean!, $playerType: String!, $platform: String!) { streamPlaybackAccessToken(channelName: $login, params: {platform: $platform, playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isLive) { value signature } videoPlaybackAccessToken(id: $vodID, params: {platform: $platform, playerBackend: "mediaplayer", playerType: $playerType}) @include(if: $isVod) { value signature } }`;
-  const tokenResponse = await request(
-    "https://gql.twitch.tv/gql",
-    {
-      method: "POST",
-      headers: { "Client-ID": TWITCH_WEB_CLIENT_ID, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        operationName: "PlaybackAccessToken_Template",
-        query,
-        variables: { isLive: false, login: "", isVod: true, vodID: videoId, playerType: "site", platform: "web" },
-      }),
-    },
-    ctx,
-  );
-  if (!tokenResponse.ok) throw new ResolveError(`Twitch returned HTTP ${tokenResponse.status}.`, "HTTP_ERROR");
-  const tokenPayload: unknown = JSON.parse(await readTextBody(tokenResponse));
-  if (!isRecord(tokenPayload) || !isRecord(tokenPayload.data)) {
-    throw new ResolveError("Twitch did not return a playback token.", "NOT_FOUND");
+  let data: Record<string, unknown>;
+  try {
+    data = await queryPlaybackToken({ kind: "vod", videoId }, gqlOptions(ctx));
+  } catch (error) {
+    if (!(error instanceof GqlQueryError)) throw error;
+    // A rejected or malformed answer means Twitch issued no token; transport
+    // failures keep their own code so they are reported as a network problem.
+    throw error.code === "HTTP_ERROR" || error.code === "NETWORK_ERROR"
+      ? new ResolveError(error.message, error.code)
+      : new ResolveError("Twitch did not return a playback token.", "NOT_FOUND");
   }
-  const token = tokenPayload.data.videoPlaybackAccessToken;
+  const token = data.videoPlaybackAccessToken;
   if (!isRecord(token)) throw new ResolveError("Twitch did not grant playback access to this VOD.", "ACCESS_DENIED");
   const signature = getString(token, "signature");
   const value = getString(token, "value");
@@ -641,11 +633,7 @@ async function resolvePublicManifest(videoId: string, ctx: ProbeContext): Promis
  * exact hidden path. Probe that path without requiring authentication.
  */
 async function resolveFromVodMetadata(videoId: string, ctx: ProbeContext): Promise<ResolveResult | null> {
-  const client = new GqlClient({
-    fetch: ctx.fetch,
-    timeoutMs: ctx.timeoutMs,
-    ...(ctx.signal ? { signal: ctx.signal } : {}),
-  });
+  const client = new GqlClient(gqlOptions(ctx));
   const video = await fetchVideoMetadata(client, videoId);
   if (!video?.channel || !video.streamId || video.startedAtSeconds === null) return null;
   const result = await resolveAtTimestamp(
