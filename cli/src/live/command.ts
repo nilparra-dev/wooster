@@ -2,7 +2,7 @@ import { stdout, stderr } from "node:process";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
-import { integerValue, optionValue } from "../args.js";
+import { integerValue, optionValue, timeoutMsValue } from "../args.js";
 import { copyToClipboard, openPlayer } from "../player-open.js";
 import { chooseFormat, ResolveError } from "../resolver.js";
 import { parseLiveChannel } from "./channel.js";
@@ -31,6 +31,7 @@ Options:
   --open [player]       Open VLC, MPV, IINA, or PotPlayer with the raw URL
   --no-open             With --watch, do not open a browser
   --port NUMBER         Local player port (default: a free port)
+  --timeout <seconds>   Per-request timeout while resolving, 1 to 300 (default 12)
   -h, --help            Show this help
 
 The printed or opened raw URL is Twitch's own stream and still contains ads.
@@ -51,6 +52,7 @@ interface LiveOptions {
   player?: string;
   noOpen: boolean;
   port?: number;
+  timeoutMs?: number;
 }
 
 const PLAYERS = new Set(["vlc", "mpv", "iina", "potplayer"]);
@@ -92,6 +94,9 @@ export async function liveCommand(args: string[]): Promise<void> {
     } else if (arg === "--port") {
       options.port = integerValue(args, index, arg, 0, 65535);
       index += 1;
+    } else if (arg === "--timeout") {
+      options.timeoutMs = timeoutMsValue(args, index, arg);
+      index += 1;
     } else if (arg.startsWith("-")) {
       throw new ResolveError(`Unknown live option: ${arg}`, "INVALID_ARGUMENT");
     } else if (!options.input) {
@@ -117,7 +122,7 @@ export async function liveCommand(args: string[]): Promise<void> {
 
   if (!options.watch) {
     if (stderr.isTTY) stderr.write(`Checking if ${channel} is live...\n`);
-    const result = await resolveLiveM3U8(channel);
+    const result = await resolveLiveM3U8(channel, options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {});
     const selected = chooseFormat(result.formats, options.quality);
     if (options.json) {
       stdout.write(`${JSON.stringify({ ...result, selected }, null, 2)}\n`);
@@ -147,6 +152,7 @@ export async function liveCommand(args: string[]): Promise<void> {
     input: channel,
     quality: options.quality,
     ...(options.port !== undefined ? { port: options.port } : {}),
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
   });
   stdout.write(`${server.url}\n`);
   stderr.write("Local live player is running. Keep this terminal open; Ctrl+C stops it.\n");

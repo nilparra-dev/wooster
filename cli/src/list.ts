@@ -1,7 +1,7 @@
 import { stdin, stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 
-import { integerValue, optionValue } from "./args.js";
+import { integerValue, optionValue, timeoutMsValue, verboseProgress } from "./args.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { readTextBody } from "./net/body.js";
 import { fetchMedia } from "./net/media.js";
@@ -204,9 +204,9 @@ export async function measurePlaylistDuration(
   }
 }
 
-async function probeTarget(target: string, timestampWindow: number): Promise<ProbeOutcome> {
+async function probeTarget(target: string, timestampWindow: number, timeoutMs?: number): Promise<ProbeOutcome> {
   try {
-    const result = await resolveM3U8(target, { timestampWindow });
+    const result = await resolveM3U8(target, { timestampWindow, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
     const first = result.formats[0];
     const mediaDurationSeconds = first ? await measurePlaylistDuration(first.url) : null;
     return {
@@ -245,6 +245,8 @@ Options:
   --no-open                   With --watch, do not open a browser
   -q, --quality <quality>     Quality for --download/--url (default best)
   --timestamp-window <secs>   Search window for approximate timestamps (default ${DEFAULT_TIMESTAMP_WINDOW})
+  --timeout <seconds>         Per-request timeout, 1 to 300 (default 12)
+  --verbose                   With --url, --watch or --download, explain each resolution step
   --json                      Print structured JSON
   -h, --help                  Show this help
 
@@ -266,6 +268,8 @@ interface ListOptions {
   noOpen: boolean;
   quality: string;
   timestampWindow: number;
+  timeoutMs?: number;
+  verbose: boolean;
   urlRequested: boolean;
   urlIndex?: number;
   watchRequested: boolean;
@@ -285,6 +289,7 @@ function parseListArgs(args: string[]): ListOptions {
     noOpen: false,
     quality: "best",
     timestampWindow: DEFAULT_TIMESTAMP_WINDOW,
+    verbose: false,
     urlRequested: false,
     watchRequested: false,
     targetRequested: false,
@@ -310,6 +315,11 @@ function parseListArgs(args: string[]): ListOptions {
     } else if (arg === "--timestamp-window") {
       options.timestampWindow = integerValue(args, index, arg, 0, 900);
       index += 1;
+    } else if (arg === "--timeout") {
+      options.timeoutMs = timeoutMsValue(args, index, arg);
+      index += 1;
+    } else if (arg === "--verbose") {
+      options.verbose = true;
     } else if (arg === "--url" || arg === "--watch" || arg === "--target" || arg === "--download") {
       const next = args[index + 1];
       const parsed = next && /^\d+$/.test(next) ? Number.parseInt(next, 10) : undefined;
@@ -422,7 +432,13 @@ export async function listCommand(args: string[]): Promise<void> {
   const login = options.channel.trim().toLowerCase().replace(/^@/, "");
   if (!/^\w+$/.test(login)) throw new ResolveError(`Invalid channel name: ${options.channel}`, "INVALID_ARGUMENT");
 
-  const client = new GqlClient({});
+  const timeout = options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {};
+  // The row actions run another command, which receives the same resolver flags.
+  const forwarded = [
+    ...(options.timeoutMs !== undefined ? ["--timeout", String(options.timeoutMs / 1000)] : []),
+    ...(options.verbose ? ["--verbose"] : []),
+  ];
+  const client = new GqlClient(timeout);
   const fetchLimit = options.all ? 2000 : options.limit;
   const warnings: string[] = [];
   const recordFailure = (source: string, error: unknown) => {
@@ -433,11 +449,11 @@ export async function listCommand(args: string[]): Promise<void> {
       recordFailure("Twitch archive", error);
       return [] as ChannelVideoNode[];
     }),
-    fetchTwitTrackerStreams(login, { limit: fetchLimit }).catch((error: unknown) => {
+    fetchTwitTrackerStreams(login, { limit: fetchLimit, ...timeout }).catch((error: unknown) => {
       recordFailure("TwiTracker", error);
       return [] as TrackerStream[];
     }),
-    fetchStreamerVitalsStreams(login).catch((error: unknown) => {
+    fetchStreamerVitalsStreams(login, timeout).catch((error: unknown) => {
       recordFailure("StreamerVitals", error);
       return [] as TrackerStream[];
     }),
@@ -490,6 +506,7 @@ export async function listCommand(args: string[]): Promise<void> {
         options.quality,
         "--timestamp-window",
         String(options.timestampWindow),
+        ...forwarded,
       ]);
       return;
     }
@@ -499,10 +516,15 @@ export async function listCommand(args: string[]): Promise<void> {
         "--timestamp-window",
         String(options.timestampWindow),
         ...(options.noOpen ? ["--no-open"] : []),
+        ...forwarded,
       ]);
       return;
     }
-    const result = await resolveM3U8(entry.target, { timestampWindow: options.timestampWindow });
+    const result = await resolveM3U8(entry.target, {
+      timestampWindow: options.timestampWindow,
+      ...timeout,
+      ...(options.verbose ? { onProgress: verboseProgress } : {}),
+    });
     const format = chooseFormat(result.formats, options.quality);
     if (options.json) {
       stdout.write(
@@ -520,7 +542,7 @@ export async function listCommand(args: string[]): Promise<void> {
         entry.probe = { status: "missing", domain: null, reason: "No resolvable target." };
         return;
       }
-      entry.probe = await probeTarget(entry.target, options.timestampWindow);
+      entry.probe = await probeTarget(entry.target, options.timestampWindow, options.timeoutMs);
     });
   }
 

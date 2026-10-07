@@ -2,7 +2,7 @@ import { mkdir, rm, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { stderr, stdout } from "node:process";
 
-import { choiceValue, integerValue, optionValue } from "../args.js";
+import { choiceValue, integerValue, optionValue, timeoutMsValue, verboseProgress } from "../args.js";
 import { exitCodeFor, EXIT_INTERRUPTED } from "../exit-codes.js";
 import { chooseFormat, DEFAULT_TIMESTAMP_WINDOW, ResolveError, resolveM3U8 } from "../resolver.js";
 import { BodyTooLargeError, readTextBody } from "../net/body.js";
@@ -49,6 +49,8 @@ Options:
   --install-ffmpeg          Download a pinned LGPL ffmpeg build into the user cache
   --keep-ts                 Keep the intermediate .ts file after --remux
   --timestamp-window <secs> Search window for approximate timestamps (default ${DEFAULT_TIMESTAMP_WINDOW})
+  --timeout <seconds>       Per-request timeout while resolving, 1 to 300 (default 12)
+  --verbose                 Explain each resolution step on stderr
   --json                    Print structured JSON
   -h, --help                Show this help
 
@@ -81,6 +83,9 @@ interface DownloadCliOptions {
   keepTs: boolean;
   json: boolean;
   timestampWindow: number;
+  /** Per-request timeout of the resolver; segment requests keep their own. */
+  timeoutMs?: number;
+  verbose: boolean;
 }
 
 export function parseDownloadArgs(args: string[]): DownloadCliOptions {
@@ -94,6 +99,7 @@ export function parseDownloadArgs(args: string[]): DownloadCliOptions {
     json: false,
     installFfmpeg: false,
     timestampWindow: DEFAULT_TIMESTAMP_WINDOW,
+    verbose: false,
   };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -123,6 +129,11 @@ export function parseDownloadArgs(args: string[]): DownloadCliOptions {
     } else if (arg === "--timestamp-window") {
       options.timestampWindow = integerValue(args, index, arg, 0, 900);
       index += 1;
+    } else if (arg === "--timeout") {
+      options.timeoutMs = timeoutMsValue(args, index, arg);
+      index += 1;
+    } else if (arg === "--verbose") {
+      options.verbose = true;
     } else if (arg === "--force") {
       options.force = true;
     } else if (arg === "--remux") {
@@ -399,6 +410,8 @@ export async function downloadCommand(args: string[]): Promise<void> {
       timestampWindow: options.timestampWindow,
       signal: controller.signal,
       ...(options.channel ? { channel: options.channel } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+      ...(options.verbose ? { onProgress: verboseProgress } : {}),
     });
     if (result.kind === "live") {
       throw new ResolveError(

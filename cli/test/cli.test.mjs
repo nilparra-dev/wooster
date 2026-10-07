@@ -54,8 +54,45 @@ describe("cli entry point", () => {
     assert.equal(result.status, 2);
     assert.equal(result.stderr, "");
     const payload = JSON.parse(result.stdout);
+    assert.equal(payload.status, "error");
     assert.equal(payload.error.code, "INVALID_INPUT");
     assert.match(payload.error.message, /^Unsupported input\./);
+  });
+
+  it("reports a JSON error in the same shape from every command", () => {
+    for (const args of [["hello!"], ["list"], ["target"], ["live"], ["download", "hello!"], ["chat", "1"]]) {
+      const result = run(...args, "--json");
+      const payload = JSON.parse(result.stdout);
+      assert.deepEqual(Object.keys(payload), ["status", "error"], args.join(" "));
+      assert.equal(payload.status, "error", args.join(" "));
+      assert.equal(typeof payload.error.code, "string", args.join(" "));
+      assert.equal(typeof payload.error.message, "string", args.join(" "));
+    }
+  });
+
+  it("accepts --timeout with the same range on every command", () => {
+    for (const args of [
+      ["2434567890"],
+      ["download", "2434567890"],
+      ["watch", "2434567890"],
+      ["list", "xqc"],
+      ["target", "xqc"],
+      ["live", "xqc"],
+      ["chat", "2434567890", "-o", "chat.json"],
+    ]) {
+      const result = run(...args, "--timeout", "0");
+      assert.equal(result.status, 2, args.join(" "));
+      assert.match(result.stderr, /--timeout requires an integer between 1 and 300\./, args.join(" "));
+    }
+  });
+
+  it("accepts --verbose on the commands that run the resolver", () => {
+    // Each case stops at a later usage error, which proves the flag parsed.
+    for (const args of [["download", "hello!"], ["watch", "live:xqc"], ["list"]]) {
+      const result = run(...args, "--verbose");
+      assert.equal(result.status, 2, args.join(" "));
+      assert.doesNotMatch(result.stderr, /Unknown/, args.join(" "));
+    }
   });
 
   it("asks for the channel of a hidden stream ID instead of guessing", () => {

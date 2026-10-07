@@ -1,6 +1,6 @@
 import { stderr, stdout } from "node:process";
 
-import { integerValue } from "./args.js";
+import { integerValue, timeoutMsValue } from "./args.js";
 import { mergeChannelStreams, streamTarget, type ChannelStream } from "./list.js";
 import { parseInput, ResolveError } from "./resolver.js";
 import { fetchChannelVideos, GqlClient, type ChannelVideoNode } from "./twitch/gql.js";
@@ -43,6 +43,7 @@ target is correct even when Twitch does not list the VOD.
 
 Options:
   --timestamp <seconds>  Start time used when tracker sources fail
+  --timeout <seconds>    Per-request timeout, 1 to 300 (default 12)
   --json                 Print structured JSON
   -h, --help             Show this help
 
@@ -56,7 +57,13 @@ interface TargetOptions {
   input?: string;
   streamId?: string;
   timestamp?: number;
+  timeoutMs?: number;
   json: boolean;
+}
+
+/** Request options shared by the Twitch and tracker lookups of one run. */
+function requestOptions(options: TargetOptions): { timeoutMs?: number } {
+  return options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {};
 }
 
 function parseTargetArgs(args: string[]): TargetOptions {
@@ -67,6 +74,9 @@ function parseTargetArgs(args: string[]): TargetOptions {
     if (!arg) continue;
     if (arg === "--timestamp") {
       options.timestamp = integerValue(args, index, arg, 1, Number.MAX_SAFE_INTEGER, "start epoch seconds");
+      index += 1;
+    } else if (arg === "--timeout") {
+      options.timeoutMs = timeoutMsValue(args, index, arg);
       index += 1;
     } else if (arg === "--json") {
       options.json = true;
@@ -115,8 +125,8 @@ async function targetFromStreamId(
   // allSettled keeps the fallback to the other source when one tracker rejects
   // instead of losing both answers to the first failure.
   const exact = await Promise.allSettled([
-    fetchTwitTrackerStreamTime(channel, streamId),
-    fetchSullyGnomeStreamTime(channel, streamId),
+    fetchTwitTrackerStreamTime(channel, streamId, requestOptions(options)),
+    fetchSullyGnomeStreamTime(channel, streamId, requestOptions(options)),
   ]);
   const twitTracker = exact[0].status === "fulfilled" ? exact[0].value : null;
   const sullyGnome = exact[1].status === "fulfilled" ? exact[1].value : null;
@@ -148,7 +158,7 @@ async function targetFromStreamId(
 }
 
 async function targetFromChannel(options: TargetOptions, channel: string): Promise<void> {
-  const client = new GqlClient({});
+  const client = new GqlClient(requestOptions(options));
   const warnings: string[] = [];
   const recordFailure = (source: string, error: unknown) => {
     warnings.push(`${source}: ${error instanceof Error ? error.message : String(error)}`);
@@ -158,11 +168,11 @@ async function targetFromChannel(options: TargetOptions, channel: string): Promi
       recordFailure("Twitch archive", error);
       return [] as ChannelVideoNode[];
     }),
-    fetchTwitTrackerStreams(channel).catch((error: unknown) => {
+    fetchTwitTrackerStreams(channel, requestOptions(options)).catch((error: unknown) => {
       recordFailure("TwiTracker", error);
       return [] as TrackerStream[];
     }),
-    fetchStreamerVitalsStreams(channel).catch((error: unknown) => {
+    fetchStreamerVitalsStreams(channel, requestOptions(options)).catch((error: unknown) => {
       recordFailure("StreamerVitals", error);
       return [] as TrackerStream[];
     }),

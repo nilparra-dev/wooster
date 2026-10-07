@@ -24,7 +24,9 @@ npm publish dates.
 - `--verbose` narrates the resolution on stderr: the step in progress, the
   serving hostname and, for a hidden VOD, the source and offset of the start
   time. The programmatic `resolveM3U8` gains a matching `onProgress` option.
-- `--timeout <seconds>` sets the per-request timeout of the resolver.
+- `--timeout <seconds>` sets the per-request timeout of the resolver. Every
+  command accepts it with the same range, and `download`, `watch` and the row
+  actions of `list` accept `--verbose` too.
 - The CLI has documented exit codes: 2 for an invalid command line or input, 3
   when nothing is found and 4 when Twitch or a tracker cannot be reached.
 - `npm run lint` runs ESLint over the CLI, and CI enforces it.
@@ -34,6 +36,14 @@ npm publish dates.
 
 ### Changed
 
+- With `--json`, the resolver, `list`, `target` and `live` report a failure as
+  `{ "status": "error", "error": { ... } }`, the shape `download` and `chat`
+  already used. The `error` object is unchanged; `status` is new.
+- The playback token request of public VODs and live channels is retried on a
+  429 or 5xx answer like every other Twitch request, and a transport failure
+  reports `NETWORK_ERROR` (exit code 4) instead of a generic failure.
+- `watch` removes the chat journal from its cache once the chat is complete,
+  which roughly halves the disk used by each cached chat.
 - **Breaking:** a usage error now exits with 2, a missing VOD or channel with
   3, and a network failure with 4, where every failure used to exit with 1.
   Failures without a specific code still exit with 1, and Ctrl+C during
