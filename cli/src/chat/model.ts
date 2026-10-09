@@ -28,8 +28,8 @@ export function parseMessage(value: unknown): ChatMessage {
   const node = record(value);
   const body = record(node.message);
   const user = node.commenter === null ? null : record(node.commenter);
-  const fragments = array(body.fragments).map((value) => {
-    const fragment = record(value);
+  const fragments = array(body.fragments).map((item) => {
+    const fragment = record(item);
     return {
       text: string(fragment.text),
       emoteId: fragment.emote === null ? null : string(record(fragment.emote).emoteID),
@@ -44,8 +44,8 @@ export function parseMessage(value: unknown): ChatMessage {
     },
     text: fragments.map((fragment) => fragment.text).join(""),
     fragments,
-    badges: array(body.userBadges).map((value) => {
-      const badge = record(value);
+    badges: array(body.userBadges).map((item) => {
+      const badge = record(item);
       return { setId: string(badge.setID), version: string(badge.version) };
     }),
     color: nullableString(body.userColor),

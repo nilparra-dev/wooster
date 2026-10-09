@@ -1,5 +1,5 @@
 import { stderr, stdout } from "node:process";
-import { optionValue } from "../args.js";
+import { optionValue, timeoutMsValue } from "../args.js";
 import { EXIT_INTERRUPTED, exitCodeFor } from "../exit-codes.js";
 import { ResolveError } from "../resolver.js";
 import { downloadChat } from "./archive.js";
@@ -18,6 +18,7 @@ Examples:
 Options:
   -o, --output <file.json>  Required. Existing output files are never overwritten
   --channel <channel>      Channel for a bare stream ID
+  --timeout <seconds>      Per-request timeout, 1 to 300 (default 15)
   --json                   Print a machine-readable completion or error result
   -h, --help               Show this help
 
@@ -34,6 +35,7 @@ export async function chatCommand(args: string[]): Promise<void> {
   let input: string | undefined;
   let output: string | undefined;
   let channel: string | undefined;
+  let timeoutMs: number | undefined;
   const json = args.includes("--json");
   const controller = new AbortController();
   const cancel = () => controller.abort(new ChatError("CANCELLED", "Chat download interrupted. Repeat the command to resume."));
@@ -48,13 +50,16 @@ export async function chatCommand(args: string[]): Promise<void> {
         index += 1;
         if (arg === "--channel") channel = value;
         else output = value;
+      } else if (arg === "--timeout") {
+        timeoutMs = timeoutMsValue(args, index, arg);
+        index += 1;
       } else if (arg.startsWith("-")) {
         throw new ChatError("INVALID_ARGUMENT", `Unknown chat option: ${arg}`);
       } else if (input === undefined) input = arg;
       else throw new ChatError("INVALID_ARGUMENT", `Unexpected argument: ${arg}`);
     }
     if (!input || !output) throw new ChatError("INVALID_ARGUMENT", "Provide a VOD or stream target and --output chat.json. Run chat --help for examples.");
-    const source = new TwitchChatClient({ signal: controller.signal });
+    const source = new TwitchChatClient({ signal: controller.signal, ...(timeoutMs !== undefined ? { timeoutMs } : {}) });
     const vodId = await source.resolve(input, channel);
     if (!json) stderr.write(`Downloading available chat for VOD ${vodId}...\n`);
     let lastProgress = 0;

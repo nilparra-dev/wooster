@@ -35,10 +35,21 @@ hidden VOD, which source supplied the start time and how far it was from the
 one you gave. A hidden stream that needs the window search can take a while;
 `--timeout` shortens or extends how long each request may wait.
 
+`--timeout` takes the same 1 to 300 seconds on every command: the resolver,
+`list`, `target`, `live`, `watch`, `download` and `chat`. In `download` it
+covers the resolution, not the segment transfers. `--verbose` is accepted
+wherever the hidden-VOD resolver runs: the resolver itself, `download`, `watch`
+and the `--url`, `--watch` and `--download` actions of `list`.
+
 ## Exit codes
 
 Every command uses the same codes, so a script can react without reading the
-message. `--json` errors also carry a finer `error.code`.
+message. With `--json`, every command reports a failure on stdout in the same
+shape, with a finer `error.code`:
+
+```json
+{ "status": "error", "error": { "code": "NOT_FOUND", "message": "..." } }
+```
 
 | Code | Meaning | Typical `error.code` |
 | --- | --- | --- |
@@ -103,6 +114,8 @@ Options:
 --no-open                   With --watch, do not open a browser
 -q, --quality <quality>     Quality for --download/--url (default best)
 --timestamp-window <secs>   Search window for approximate timestamps
+--timeout <seconds>         Per-request timeout, 1 to 300 (default 12)
+--verbose                   With --url, --watch or --download, explain each resolution step
 --json                      Print structured JSON
 ```
 

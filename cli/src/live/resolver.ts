@@ -2,7 +2,8 @@ import { readTextBody } from "../net/body.js";
 import { fetchAllowedMedia } from "../net/media.js";
 import { getString, isRecord } from "../json.js";
 import { parseMasterManifest, ResolveError } from "../resolver.js";
-import { TWITCH_WEB_CLIENT_ID } from "../twitch/gql.js";
+import { queryPlaybackToken } from "../twitch/playback.js";
+import { GqlQueryError } from "../twitch/query.js";
 import type { PlaylistFormat, ResolveOptions } from "../types.js";
 import { parseLiveChannel } from "./channel.js";
 
@@ -27,29 +28,27 @@ const DEFAULT_TIMEOUT_MS = 12_000;
 export async function resolveLiveM3U8(rawInput: string, options: ResolveOptions = {}): Promise<LiveResolveResult> {
   const channel = parseLiveChannel(rawInput);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const fetchImpl = options.fetch ?? fetch;
   const withTimeout = (signal?: AbortSignal): AbortSignal => {
     const timeout = AbortSignal.timeout(timeoutMs);
     return signal ? AbortSignal.any([timeout, signal]) : timeout;
   };
 
-  const tokenResponse = await fetchImpl("https://gql.twitch.tv/gql", {
-    method: "POST",
-    headers: { "Client-ID": TWITCH_WEB_CLIENT_ID, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      operationName: "PlaybackAccessToken_Template",
-      query:
-        "query PlaybackAccessToken_Template($login: String!, $isLive: Boolean!, $vodID: ID!, $isVod: Boolean!, $playerType: String!, $platform: String!) { streamPlaybackAccessToken(channelName: $login, params: {platform: $platform, playerBackend: \"mediaplayer\", playerType: $playerType}) @include(if: $isLive) { value signature } videoPlaybackAccessToken(id: $vodID, params: {platform: $platform, playerBackend: \"mediaplayer\", playerType: $playerType}) @include(if: $isVod) { value signature } }",
-      variables: { isLive: true, login: channel, isVod: false, vodID: "", playerType: "site", platform: "web" },
-    }),
-    signal: withTimeout(options.signal),
-  });
-  if (!tokenResponse.ok) throw new ResolveError(`Twitch returned HTTP ${tokenResponse.status}.`, "HTTP_ERROR");
-  const payload: unknown = JSON.parse(await readTextBody(tokenResponse));
-  if (!isRecord(payload) || !isRecord(payload.data)) {
-    throw new ResolveError(`"${channel}" is not live right now, or Twitch refused playback access.`, "OFFLINE");
+  let data: Record<string, unknown>;
+  try {
+    data = await queryPlaybackToken(
+      { kind: "live", channel },
+      { timeoutMs, ...(options.fetch ? { fetch: options.fetch } : {}), ...(options.signal ? { signal: options.signal } : {}) },
+    );
+  } catch (error) {
+    if (!(error instanceof GqlQueryError)) throw error;
+    // An answer without usable data carries no token, which is reported as
+    // OFFLINE like a missing token; a transport failure keeps its own code
+    // because it says nothing about the channel.
+    throw error.code === "HTTP_ERROR" || error.code === "NETWORK_ERROR"
+      ? new ResolveError(error.message, error.code)
+      : new ResolveError(`"${channel}" is not live right now, or Twitch refused playback access.`, "OFFLINE");
   }
-  const token = payload.data.streamPlaybackAccessToken;
+  const token = data.streamPlaybackAccessToken;
   if (!isRecord(token)) {
     throw new ResolveError(`"${channel}" is not live right now, or Twitch refused playback access.`, "OFFLINE");
   }

@@ -21,8 +21,10 @@ npx twitch-vod-m3u8@beta watch TARGET --no-chat --no-open --port 5174
 
 `--chat` explicitly pairs your export with the selected video. Otherwise the
 launcher tries to recover chat using the exact VOD identity, independently of
-playback. Completed chats and resumable journals are cached under
-`~/.cache/twitch-vod-m3u8/chat/`. A failed chat download does not stop the video.
+playback. Completed chats are cached under `~/.cache/twitch-vod-m3u8/chat/`.
+An interrupted download keeps its journal there and resumes the next time the
+same VOD is opened; the journal is removed once the chat is complete. A failed
+chat download does not stop the video.
 No full video is written to disk. Streaming still requires Internet access and
 the CDN fragments to exist; it is not a permanent offline archive.
 

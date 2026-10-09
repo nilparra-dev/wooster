@@ -4,7 +4,7 @@ import { createInterface } from "node:readline/promises";
 import { readFileSync } from "node:fs";
 import { stdin, stderr, stdout } from "node:process";
 
-import { integerValue, optionValue } from "./args.js";
+import { integerValue, optionValue, timeoutMsValue, verboseProgress } from "./args.js";
 import { exitCodeFor } from "./exit-codes.js";
 import type { ResolveResult } from "./types.js";
 import { chooseFormat, DEFAULT_TIMESTAMP_WINDOW, parseInput, ResolveError, resolveM3U8 } from "./resolver.js";
@@ -37,8 +37,8 @@ interface CliOptions {
   open: boolean;
   player?: string;
   timestampWindow: number;
-  /** Per-request timeout in seconds; the resolver default applies when unset. */
-  timeoutSeconds?: number;
+  /** Per-request timeout; the resolver default applies when unset. */
+  timeoutMs?: number;
   verbose: boolean;
   /** Set by --help and --version, which stop parsing and print instead of resolving. */
   info?: "help" | "version";
@@ -115,7 +115,7 @@ function parseArgs(args: string[]): CliOptions {
       options.timestampWindow = integerValue(args, index, arg, 0, 900);
       index += 1;
     } else if (arg === "--timeout") {
-      options.timeoutSeconds = integerValue(args, index, arg, 1, 300);
+      options.timeoutMs = timeoutMsValue(args, index, arg);
       index += 1;
     } else if (arg === "--verbose") {
       options.verbose = true;
@@ -221,8 +221,8 @@ async function main(): Promise<void> {
   const result = await resolveM3U8(options.input, {
     timestampWindow: options.timestampWindow,
     ...(options.channel ? { channel: options.channel } : {}),
-    ...(options.timeoutSeconds !== undefined ? { timeoutMs: options.timeoutSeconds * 1000 } : {}),
-    ...(options.verbose ? { onProgress: (message: string) => stderr.write(`  ${message}\n`) } : {}),
+    ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    ...(options.verbose ? { onProgress: verboseProgress } : {}),
   });
   if (options.verbose) for (const line of describeResult(result)) stderr.write(`${line}\n`);
   if (result.kind === "live" && stderr.isTTY) {
@@ -254,7 +254,7 @@ main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   const code = error instanceof ResolveError ? error.code : "ERROR";
   if (process.argv.includes("--json")) {
-    stdout.write(`${JSON.stringify({ error: { code, message } })}\n`);
+    stdout.write(`${JSON.stringify({ status: "error", error: { code, message } })}\n`);
   } else {
     stderr.write(`Error: ${message}\n`);
   }

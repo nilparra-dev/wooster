@@ -68,12 +68,12 @@ export function parseStoredMessage(value: unknown): ChatMessage {
     },
     text: string(message.text),
     color: nullableString(message.color),
-    fragments: array(message.fragments).map((value) => {
-      const fragment = record(value);
+    fragments: array(message.fragments).map((item) => {
+      const fragment = record(item);
       return { text: string(fragment.text), emoteId: nullableString(fragment.emoteId) };
     }),
-    badges: array(message.badges).map((value) => {
-      const badge = record(value);
+    badges: array(message.badges).map((item) => {
+      const badge = record(item);
       return { setId: string(badge.setId), version: string(badge.version) };
     }),
   };

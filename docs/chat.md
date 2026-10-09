@@ -68,4 +68,5 @@ depends on Twitch still serving the necessary history.
 every original live message still exists. An empty API response is explicitly
 reported as `empty`. Null responses and GraphQL errors are not treated as empty
 chat. `--json` emits a structured result or error for automation; diagnostics go
-to stderr in the normal mode. Failure exits with code 1; cancellation exits 130.
+to stderr in the normal mode. Failures use the
+[shared exit codes](cli.md#exit-codes); cancellation exits 130.

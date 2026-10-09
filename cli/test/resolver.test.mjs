@@ -102,6 +102,33 @@ https://video-weaver.test.ttvnw.net/123/720p60/index-dvr.m3u8`;
     assert.match(requests[1], /[?&]sig=sig(&|$)/);
     assert.match(requests[1], /[?&]token=token(&|$)/);
   });
+  it("retries the playback token when Twitch answers with a server error", async () => {
+    let tokenCalls = 0;
+    const fetchImpl = async (input) => {
+      const url = String(input);
+      if (url === "https://gql.twitch.tv/gql") {
+        tokenCalls += 1;
+        if (tokenCalls === 1) return new Response("", { status: 503 });
+        return new Response(
+          JSON.stringify({ data: { videoPlaybackAccessToken: { value: "token", signature: "sig" } } }),
+          { status: 200 },
+        );
+      }
+      if (url.startsWith("https://usher.ttvnw.net/vod/2434567890.m3u8")) {
+        return new Response(
+          `#EXTM3U
+#EXT-X-STREAM-INF:BANDWIDTH=6000000,VIDEO="chunked"
+https://video-weaver.test.ttvnw.net/123/chunked/index-dvr.m3u8`,
+          { status: 200 },
+        );
+      }
+      return new Response("", { status: 404 });
+    };
+    const result = await resolveM3U8("2434567890", { fetch: fetchImpl });
+    assert.equal(tokenCalls, 2);
+    assert.equal(result.kind, "public");
+  });
+
   it("rejects a manifest redirect outside the media allowlist", async () => {
     const requested = [];
     const fetchImpl = async (input, init) => {

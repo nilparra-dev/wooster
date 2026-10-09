@@ -36,6 +36,19 @@ export function integerValue(
   return parsed;
 }
 
+/**
+ * `--timeout <seconds>` in milliseconds. Every command accepts the same range
+ * so a script can pass one value to all of them.
+ */
+export function timeoutMsValue(args: readonly string[], index: number, option: string): number {
+  return integerValue(args, index, option, 1, 300) * 1000;
+}
+
+/** Sink for `--verbose`: each resolution step as an indented line on stderr. */
+export function verboseProgress(message: string): void {
+  process.stderr.write(`  ${message}\n`);
+}
+
 /** One of a closed set of words. */
 export function choiceValue<T extends string>(
   args: readonly string[],

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { integerValue, optionValue } from "../args.js";
+import { integerValue, optionValue, timeoutMsValue, verboseProgress } from "../args.js";
 import { DEFAULT_TIMESTAMP_WINDOW, parseInput, ResolveError } from "../resolver.js";
 import { startWatchServer, type ServerOptions } from "./server.js";
 
@@ -19,6 +19,8 @@ Usage: twitch-m3u8 watch [URL|ID|video:...] [options]
   --port NUMBER      Local port (default: a free port)
   --timestamp-window SECS  Seconds searched around an approximate timestamp
                            (default: ${DEFAULT_TIMESTAMP_WINDOW}; 0 disables)
+  --timeout SECS     Per-request timeout while resolving, 1 to 300 (default: 12)
+  --verbose          Explain each resolution step on stderr
 
 Leave this process running while watching. Ctrl+C closes the local server.
 Video is streamed from remaining Twitch CDN fragments. Deleted media cannot
@@ -47,6 +49,11 @@ be reconstructed, and chat availability is independent of video recovery.
     } else if (arg === "--timestamp-window") {
       options.timestampWindow = integerValue(args, index, arg, 0, 900);
       index += 1;
+    } else if (arg === "--timeout") {
+      options.timeoutMs = timeoutMsValue(args, index, arg);
+      index += 1;
+    } else if (arg === "--verbose") {
+      options.onProgress = verboseProgress;
     } else if (["--channel", "--quality", "-q", "--chat"].includes(arg)) {
       const value = optionValue(args, index, arg);
       index += 1;

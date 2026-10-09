@@ -105,6 +105,34 @@ test("resolveLiveM3U8 reports OFFLINE when the channel is not live", async () =>
   });
 });
 
+test("resolveLiveM3U8 retries a throttled token request and reports a dead one as a network error", async () => {
+  let tokenCalls = 0;
+  const throttledOnce = liveTokenFetch(LIVE_MASTER);
+  const result = await resolveLiveM3U8("xqc", {
+    fetch: async (input, init) => {
+      if (String(input) === "https://gql.twitch.tv/gql" && (tokenCalls += 1) === 1) {
+        return new Response("", { status: 503 });
+      }
+      return throttledOnce(input, init);
+    },
+  });
+  assert.equal(tokenCalls, 2);
+  assert.equal(result.formats.length, 2);
+
+  // A 4xx is final: it is not retried and must not read as "channel offline".
+  let rejectedCalls = 0;
+  await assert.rejects(
+    resolveLiveM3U8("xqc", {
+      fetch: async () => {
+        rejectedCalls += 1;
+        return new Response("", { status: 400 });
+      },
+    }),
+    (error) => error instanceof ResolveError && error.code === "HTTP_ERROR",
+  );
+  assert.equal(rejectedCalls, 1);
+});
+
 const MIDROLL = `#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-TARGETDURATION:10

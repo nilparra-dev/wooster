@@ -4,7 +4,7 @@ import {
   type ServerResponse,
 } from "node:http";
 import { createReadStream } from "node:fs";
-import { mkdir, stat } from "node:fs/promises";
+import { mkdir, rm, stat } from "node:fs/promises";
 import { join, resolve, extname, relative, isAbsolute, sep } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes, createHash } from "node:crypto";
@@ -31,6 +31,10 @@ export interface ServerOptions {
   cache?: string;
   port?: number;
   timestampWindow?: number;
+  /** Per-request timeout of the resolver; its default applies when unset. */
+  timeoutMs?: number;
+  /** Receives the resolver's progress sentences, for `--verbose`. */
+  onProgress?: (message: string) => void;
   resolver?: (input: string, options: ResolveOptions) => Promise<ResolveResult>;
   fetch?: typeof fetch;
   /** "live" resolves channels that are broadcasting now and filters ads. */
@@ -196,26 +200,43 @@ export async function startWatchServer(options: ServerOptions) {
    * in every path so staged servers control the transport.
    */
   async function resolveForSession(input: string, channel: string | undefined, signal: AbortSignal): Promise<ResolveResult> {
-    if (options.resolver) {
-      return resolver(input, {
-        signal,
-        ...(channel ? { channel } : {}),
-        ...(options.timestampWindow !== undefined ? { timestampWindow: options.timestampWindow } : {}),
-        ...(options.fetch ? { fetch: options.fetch } : {}),
-      });
-    }
-    if (liveMode) {
-      return resolveLiveM3U8(channel ?? input, {
-        signal,
-        ...(options.fetch ? { fetch: options.fetch } : {}),
-      });
-    }
-    return resolver(input, {
+    const transport: ResolveOptions = {
       signal,
+      ...(options.fetch ? { fetch: options.fetch } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+    };
+    if (liveMode && !options.resolver) return resolveLiveM3U8(channel ?? input, transport);
+    return resolver(input, {
+      ...transport,
       ...(channel ? { channel } : {}),
       ...(options.timestampWindow !== undefined ? { timestampWindow: options.timestampWindow } : {}),
-      ...(options.fetch ? { fetch: options.fetch } : {}),
+      ...(options.onProgress ? { onProgress: options.onProgress } : {}),
     });
+  }
+  /**
+   * The parts of a ready session that come from a resolution: its title, its
+   * kind and the proxied format URLs, with the requested quality first. The
+   * URLs are registered in the current `registry`, so the caller replaces the
+   * registry before calling this.
+   */
+  function describeResult(result: ResolveResult): Pick<PlayerSession, "title" | "source" | "formats"> {
+    const selected = chooseFormat(result.formats, options.quality ?? "best");
+    return {
+      title:
+        result.kind === "hidden"
+          ? `${result.channel} · ${new Date(result.startedAt).toLocaleDateString("en-GB")}`
+          : result.kind === "live"
+            ? `${result.channel} · live`
+            : `Twitch VOD ${result.videoId}`,
+      source: result.kind,
+      formats: [
+        selected,
+        ...result.formats.filter((format) => format !== selected),
+      ].map((format) => ({
+        id: format.id,
+        url: registry.register(format.url, true),
+      })),
+    };
   }
   async function prepareChat(
     id: number,
@@ -246,7 +267,7 @@ export async function startWatchServer(options: ServerOptions) {
         } catch {
           exists = false;
         }
-        if (!exists)
+        if (!exists) {
           await downloadChat({
             vodId,
             output: path,
@@ -257,6 +278,11 @@ export async function startWatchServer(options: ServerOptions) {
                 session.chat = { kind: "downloading", messages };
             },
           });
+          // The journal only serves to resume an unfinished download. Once the
+          // export exists the cache never reads it again, and keeping it would
+          // roughly double the disk used by every watched VOD.
+          await rm(`${path}.archive`, { recursive: true, force: true });
+        }
       }
       const info = await stat(path);
       if (!info.isFile() || info.size > 4 * 1024 ** 3)
@@ -303,26 +329,9 @@ export async function startWatchServer(options: ServerOptions) {
       if (id !== generation || closed) return;
       previousRegistry = registry;
       registry = new MediaRegistry(prefix, liveMode ? { evictOldest: true } : {});
-      const selected = chooseFormat(result.formats, options.quality ?? "best");
+      const described = describeResult(result);
       if (result.kind === "live") liveChannel = result.channel;
-      session = {
-        ...session,
-        state: "ready",
-        title:
-          result.kind === "hidden"
-            ? `${result.channel} · ${new Date(result.startedAt).toLocaleDateString("en-GB")}`
-            : result.kind === "live"
-              ? `${result.channel} · live`
-              : `Twitch VOD ${result.videoId}`,
-        source: result.kind,
-        formats: [
-          selected,
-          ...result.formats.filter((format) => format !== selected),
-        ].map((format) => ({
-          id: format.id,
-          url: registry.register(format.url, true),
-        })),
-      };
+      session = { ...session, state: "ready", ...described };
       if (liveMode) {
         // V1 has no live chat: the replay archiver needs a finished VOD.
         session.chat = {
@@ -394,27 +403,14 @@ export async function startWatchServer(options: ServerOptions) {
       const id = ++generation;
       previousRegistry = registry;
       registry = new MediaRegistry(prefix, { evictOldest: true });
-      const selected = chooseFormat(result.formats, options.quality ?? "best");
+      const described = describeResult(result);
       liveChannel = result.kind === "live" ? result.channel : null;
       session = {
         revision: id,
         input: channel,
         state: "ready",
         error: null,
-        title:
-          result.kind === "hidden"
-            ? `${result.channel} · ${new Date(result.startedAt).toLocaleDateString("en-GB")}`
-            : result.kind === "live"
-              ? `${result.channel} · live`
-              : `Twitch VOD ${result.videoId}`,
-        source: result.kind,
-        formats: [
-          selected,
-          ...result.formats.filter((format) => format !== selected),
-        ].map((format) => ({
-          id: format.id,
-          url: registry.register(format.url, true),
-        })),
+        ...described,
         chat: {
           kind: "unavailable",
           message: "Live chat is not supported yet. Video still plays.",
