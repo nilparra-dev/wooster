@@ -1,6 +1,12 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/*
+ * Tailwind 4 scans the whole project by default. Turning that off and listing
+ * the sources keeps the generated CSS limited to the player, as the v3
+ * `content` option did; `tailwind.config.js` still provides the theme.
+ */
+@import "tailwindcss" source(none);
+@source "../replay.html";
+@source "./";
+@config "../tailwind.config.js";
 
 /* ============================================================
    Design tokens — dark es el tema por defecto (.dark en <html>)
