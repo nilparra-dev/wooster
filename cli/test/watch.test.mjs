@@ -333,6 +333,39 @@ test("unavailable chat does not turn a playable video into an error", async (t) 
   assert.equal(state.state, "ready");
   assert.equal(state.chat.kind, "unavailable");
 });
+test("chat saved before Twitch stops serving the replay is shown as partial", async (t) => {
+  const cache = await mkdtemp(join(tmpdir(), "watch-chat-cache-"));
+  t.after(() => rm(cache, { recursive: true, force: true }));
+  const video = {
+    id: "123", title: "Replay", createdAt: "2026-09-01T12:00:00Z", lengthSeconds: 100,
+    status: "RECORDED", owner: { login: "some_channel" }, seekPreviewsURL: null,
+  };
+  const comment = {
+    id: "m1", contentOffsetSeconds: 4, createdAt: "2026-09-01T12:00:04Z", commenter: null,
+    message: { fragments: [{ text: "hi", emote: null }], userBadges: [], userColor: null },
+  };
+  const gql = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    if (!body.operationName)
+      return new Response(JSON.stringify({ data: { video } }));
+    if (body.variables.contentOffsetSeconds === 0)
+      return new Response(JSON.stringify({ data: { video: { comments: {
+        edges: [{ node: comment, cursor: "next" }], pageInfo: { hasNextPage: true },
+      } } } }));
+    return new Response("denied", { status: 403 });
+  };
+  const server = await fixture(t, { input: "123", autoChat: true, cache, fetch: gql });
+  let state;
+  for (let i = 0; i < 200; i++) {
+    state = await (await fetch(server.api + "session")).json();
+    if (state.chat.kind === "ready" || state.chat.kind === "unavailable") break;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(state.chat.kind, "ready");
+  const chat = await (await fetch(new URL(state.chat.url, server.origin))).json();
+  assert.equal(chat.status, "partial");
+  assert.deepEqual(chat.messages.map((message) => message.id), ["m1"]);
+});
 test("player assets revalidate with an ETag while the session stays no-store", async (t) => {
   const server = await fixture(t);
 

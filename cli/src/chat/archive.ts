@@ -4,13 +4,18 @@ import { copyFile, link, mkdir, open, readFile, rename, rm, stat, truncate, type
 import { hostname } from "node:os";
 import { createInterface } from "node:readline";
 import { dirname, join, resolve } from "node:path";
-import { array, ChatError, nullableString, number, parseStoredMessage, record, string, type ChatMessage, type VideoMetadata } from "./model.js";
+import { array, ChatError, nullableString, number, parseStoredMessage, record, string, type ChatMessage, type ChatPage, type VideoMetadata } from "./model.js";
 import type { ChatSource } from "./twitch.js";
 
 interface PageRecord {
   cursor: string | null;
   nextCursor: string | null;
   messages: ChatMessage[];
+  /**
+   * Page fetched by time offset. Its cursor only links the journal chain;
+   * Twitch can repeat it, so it is not checked for pagination loops.
+   */
+  offset: boolean;
 }
 
 interface Manifest {
@@ -55,6 +60,21 @@ const RECENT_CURSOR_LIMIT = 128;
  */
 const CHECKPOINT_PAGE_INTERVAL = 10;
 const CHECKPOINT_TIME_INTERVAL_MS = 5_000;
+/**
+ * Offset pages overlap and can add messages older than the newest saved one;
+ * measured VODs trailed by up to 5 s. A message may trail the newest saved
+ * offset by this much, and the export reorders within the same window, so the
+ * exported replay stays chronological.
+ */
+const LATE_MESSAGE_TOLERANCE_SECONDS = 30;
+/**
+ * Asking Twitch for the last saved second can return the block that ends
+ * there, so offset pagination moves one second forward when a page adds
+ * nothing. The block covering a second reaches past it, even across silent
+ * stretches, so this many consecutive seconds without a new message means
+ * Twitch serves nothing further.
+ */
+const OFFSET_IDLE_LIMIT_SECONDS = 60;
 
 interface ResumeState {
   pageCount: number;
@@ -92,6 +112,12 @@ export interface DownloadOptions {
   source: ChatSource;
   signal?: AbortSignal;
   onProgress?: (progress: { messages: number; pages: number; offsetSeconds: number }) => void;
+  /**
+   * When a download fails after saving messages, export them here as a
+   * `partial` chat JSON, replacing an older snapshot. The archive stays
+   * resumable and `output` is still only written once the replay completes.
+   */
+  partialOutput?: string;
 }
 
 function isFsError(error: unknown, code: string): boolean {
@@ -153,6 +179,7 @@ function parsePage(line: string): PageRecord {
     cursor: nullableString(page.cursor),
     nextCursor: nullableString(page.nextCursor),
     messages: array(page.messages).map(parseStoredMessage),
+    offset: page.continuation === "offset",
   };
 }
 
@@ -268,15 +295,19 @@ async function saveCheckpoint(path: string, state: ResumeState, journalBytes: nu
  * checkpoint, so both paths enforce the same invariants.
  */
 function applyPage(state: ResumeState, page: PageRecord): void {
-  if (state.complete || page.cursor !== state.cursor || (page.nextCursor !== null && state.cursors.has(page.nextCursor))) {
+  if (
+    state.complete ||
+    page.cursor !== state.cursor ||
+    (!page.offset && page.nextCursor !== null && state.cursors.has(page.nextCursor))
+  ) {
     throw new ChatError("INVALID_ARCHIVE", "Archive pagination chain is inconsistent.");
   }
   for (const message of page.messages) {
-    if (state.recentIds.has(message.id) || message.offsetSeconds < state.lastOffset) {
+    if (state.recentIds.has(message.id) || message.offsetSeconds < state.lastOffset - LATE_MESSAGE_TOLERANCE_SECONDS) {
       throw new ChatError("INVALID_ARCHIVE", "Archive messages are duplicated or out of order.");
     }
     rememberRecent(state.recentIds, message.id, RECENT_ID_LIMIT);
-    state.lastOffset = message.offsetSeconds;
+    state.lastOffset = Math.max(state.lastOffset, message.offsetSeconds);
   }
   if (page.nextCursor !== null) rememberRecent(state.cursors, page.nextCursor, RECENT_CURSOR_LIMIT);
   state.cursor = page.nextCursor;
@@ -325,24 +356,54 @@ async function resumeFromCheckpoint(
   return state;
 }
 
-async function exportJson(args: { output: string; manifest: Manifest; journal: string; signal?: AbortSignal }): Promise<void> {
+async function exportJson(args: {
+  output: string;
+  manifest: Manifest;
+  journal: string;
+  signal?: AbortSignal;
+  /** Replace an existing file, for snapshots that are not the final export. */
+  replace?: boolean;
+}): Promise<void> {
   const temporary = `${args.output}.tmp`;
   const file = await open(temporary, "w");
   try {
     const header = JSON.stringify(args.manifest);
     await file.writeFile(`${header.slice(0, -1)},"messages":[\n`);
     let first = true;
+    // The journal trails its newest offset by at most the late tolerance, so a
+    // buffered message is final once the newest offset is that far ahead.
+    const pending: ChatMessage[] = [];
+    let newest = 0;
+    const flush = async (all: boolean): Promise<void> => {
+      let count = 0;
+      while (count < pending.length && (all || pending[count]!.offsetSeconds <= newest - LATE_MESSAGE_TOLERANCE_SECONDS)) {
+        count += 1;
+      }
+      if (count === 0) return;
+      const ready = pending.splice(0, count);
+      await file.writeFile(`${first ? "" : ",\n"}${ready.map((message) => JSON.stringify(message)).join(",\n")}`);
+      first = false;
+    };
     for await (const page of pages(args.journal)) {
       args.signal?.throwIfAborted();
-      if (page.messages.length > 0) {
-        await file.writeFile(`${first ? "" : ",\n"}${page.messages.map((message) => JSON.stringify(message)).join(",\n")}`);
-        first = false;
+      for (const message of page.messages) {
+        // Insert after equal offsets so messages of one second keep their order.
+        let index = pending.length;
+        while (index > 0 && pending[index - 1]!.offsetSeconds > message.offsetSeconds) index -= 1;
+        pending.splice(index, 0, message);
+        newest = Math.max(newest, message.offsetSeconds);
       }
+      await flush(false);
     }
+    await flush(true);
     await file.writeFile("\n]}\n");
     await file.sync();
   } finally {
     await file.close();
+  }
+  if (args.replace) {
+    await rename(temporary, args.output);
+    return;
   }
   // Publish atomically without replacing a file another process may have created.
   try {
@@ -450,47 +511,76 @@ export async function downloadChat(options: DownloadOptions): Promise<Manifest> 
       }
       await atomicJson(manifestPath, manifest);
       const file = await open(journal, "a");
+      const commit = async (nextCursor: string | null, messages: ChatMessage[], offset: boolean): Promise<void> => {
+        const position = (await file.stat()).size;
+        try {
+          const line = { cursor: state.cursor, nextCursor, messages, ...(offset ? { continuation: "offset" } : {}) };
+          await file.writeFile(`${JSON.stringify(line)}\n`);
+          await file.sync();
+        } catch (error) {
+          await truncate(journal, position);
+          throw error;
+        }
+        state.cursor = nextCursor;
+        state.complete = state.cursor === null;
+        if (state.cursor !== null) rememberRecent(state.cursors, state.cursor, RECENT_CURSOR_LIMIT);
+        state.pageCount += 1;
+        state.messageCount += messages.length;
+        manifest.pageCount = state.pageCount;
+        manifest.messageCount = state.messageCount;
+        journalBytes = (await file.stat()).size;
+        pagesSinceCheckpoint += 1;
+        await saveProgress();
+        options.onProgress?.({ messages: state.messageCount, pages: state.pageCount, offsetSeconds: state.lastOffset });
+      };
+      // Second requested while Twitch paginates by offset. The source ignores
+      // it for cursor pages.
+      let requestOffset = Math.floor(state.lastOffset);
+      let idleSeconds = 0;
       try {
         while (!state.complete) {
           options.signal?.throwIfAborted();
-          const page = await options.source.page({ vodId: options.vodId, cursor: state.cursor, offsetSeconds: state.lastOffset });
-          options.signal?.throwIfAborted();
-          if (page.continuation === "offset" && state.recentIds.size > 0 && !page.messages.some((message) => state.recentIds.has(message.id))) {
-            throw new ChatError("COVERAGE_GAP", "Time-based pagination did not overlap saved messages. Keeping a partial archive rather than skipping chat.");
+          let page: ChatPage;
+          try {
+            page = await options.source.page({ vodId: options.vodId, cursor: state.cursor, offsetSeconds: requestOffset });
+          } catch (error) {
+            // Twitch answers offsets past the end of some VODs with a GraphQL
+            // error even though the previous page reported more results.
+            const duration = manifest.video?.durationSeconds;
+            if (
+              !(error instanceof ChatError) || error.code !== "GRAPHQL_ERROR" ||
+              state.cursor === null || duration === undefined || requestOffset <= duration
+            ) {
+              throw error;
+            }
+            await commit(null, [], true);
+            break;
           }
-          if (page.nextCursor !== null && (page.nextCursor === "" || state.cursors.has(page.nextCursor))) {
+          options.signal?.throwIfAborted();
+          const offset = page.continuation === "offset";
+          if (!offset && page.nextCursor !== null && (page.nextCursor === "" || state.cursors.has(page.nextCursor))) {
             throw new ChatError("PAGINATION_STALLED", "Chat cursor repeated. Saved pages remain resumable.");
           }
           const messages: ChatMessage[] = [];
           for (const message of page.messages) {
             if (state.recentIds.has(message.id)) continue;
-            if (message.offsetSeconds < state.lastOffset) throw new ChatError("OUT_OF_ORDER", "Twitch returned chat out of order. Saved pages remain resumable.");
+            if (message.offsetSeconds < state.lastOffset - LATE_MESSAGE_TOLERANCE_SECONDS) {
+              throw new ChatError("OUT_OF_ORDER", "Twitch returned chat out of order. Saved pages remain resumable.");
+            }
             rememberRecent(state.recentIds, message.id, RECENT_ID_LIMIT);
-            state.lastOffset = message.offsetSeconds;
+            state.lastOffset = Math.max(state.lastOffset, message.offsetSeconds);
             messages.push(message);
           }
           if (page.nextCursor !== null && messages.length === 0) {
-            throw new ChatError("PAGINATION_STALLED", "Chat pagination made no progress. Saved pages remain resumable.");
+            if (!offset) throw new ChatError("PAGINATION_STALLED", "Chat pagination made no progress. Saved pages remain resumable.");
+            requestOffset += 1;
+            idleSeconds += 1;
+            if (idleSeconds >= OFFSET_IDLE_LIMIT_SECONDS) await commit(null, [], true);
+            continue;
           }
-          const position = (await file.stat()).size;
-          try {
-            await file.writeFile(`${JSON.stringify({ cursor: state.cursor, nextCursor: page.nextCursor, messages })}\n`);
-            await file.sync();
-          } catch (error) {
-            await truncate(journal, position);
-            throw error;
-          }
-          state.cursor = page.nextCursor;
-          state.complete = state.cursor === null;
-          if (state.cursor !== null) rememberRecent(state.cursors, state.cursor, RECENT_CURSOR_LIMIT);
-          state.pageCount += 1;
-          state.messageCount += messages.length;
-          manifest.pageCount = state.pageCount;
-          manifest.messageCount = state.messageCount;
-          journalBytes = (await file.stat()).size;
-          pagesSinceCheckpoint += 1;
-          await saveProgress();
-          options.onProgress?.({ messages: state.messageCount, pages: state.pageCount, offsetSeconds: state.lastOffset });
+          idleSeconds = 0;
+          requestOffset = Math.max(requestOffset, Math.floor(state.lastOffset));
+          await commit(page.nextCursor, messages, offset);
         }
       } finally {
         await file.close();
@@ -514,6 +604,11 @@ export async function downloadChat(options: DownloadOptions): Promise<Manifest> 
       // periodic checkpoint may not have run since the last page.
       await saveCheckpoint(checkpointPath, state, await fileSize(journal)).catch(() => undefined);
       await atomicJson(manifestPath, manifest).catch(() => undefined);
+      // The snapshot is a convenience for viewers; the download error below
+      // is the result the caller must see, so a failed export does not mask it.
+      if (options.partialOutput && state.messageCount > 0 && !options.signal?.aborted) {
+        await exportJson({ output: resolve(options.partialOutput), manifest, journal, replace: true }).catch(() => undefined);
+      }
     }
     throw error;
   } finally {

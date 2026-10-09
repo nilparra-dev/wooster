@@ -2,6 +2,14 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReplayPlayer } from "./ReplayPlayer";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
+import type { PlayerBridge } from "./session";
+
+// Local playback runs without the watch bridge; a test opts in by setting it.
+const bridgeState = vi.hoisted(() => ({ bridge: undefined as PlayerBridge | undefined }));
+vi.mock("./session", () => ({
+  usePlayerBridge: () => ({ bridge: bridgeState.bridge, error: null }),
+}));
+vi.mock("./useHls", () => ({ useHls: () => undefined }));
 
 class FakeWorker {
   static instances: FakeWorker[] = [];
@@ -42,6 +50,7 @@ beforeEach(() => {
   localStorage.clear();
 });
 afterEach(() => {
+  bridgeState.bridge = undefined;
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -130,6 +139,27 @@ describe("local replay controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove chat" }));
     expect(worker.terminate).toHaveBeenCalledOnce();
     expect(screen.getByLabelText("Archived video")).toBe(video);
+  });
+  it("shows why watch chat is unavailable without hiding it", () => {
+    bridgeState.bridge = {
+      load: vi.fn(),
+      session: {
+        revision: 1,
+        input: "123",
+        state: "ready",
+        error: null,
+        title: "Twitch VOD 123",
+        source: "public",
+        formats: [{ id: "720p60", url: "/media/1" }],
+        chat: { kind: "unavailable", message: "Twitch no longer exposes chat for this VOD." },
+      },
+    };
+    render(<ReplayPlayer />);
+    expect(screen.getByRole("heading", { name: "Chat is unavailable" })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Twitch no longer exposes chat for this VOD.",
+    );
+    expect(screen.getByRole("alert")).toBeVisible();
   });
   it("releases object URLs and exits theater mode with Escape", () => {
     const view = render(<ReplayPlayer />);

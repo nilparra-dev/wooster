@@ -601,14 +601,9 @@
   line-height: 1.75;
   margin-bottom: 18px;
 }
-.replay-empty-chat details {
-  font-size: 11px;
+.replay-empty-chat p[role="alert"] {
   color: #d1b69b;
-  margin-bottom: 17px;
   overflow-wrap: anywhere;
-}
-.replay-empty-chat summary {
-  cursor: pointer;
 }
 .replay-chat-status {
   padding: 20px 17px;

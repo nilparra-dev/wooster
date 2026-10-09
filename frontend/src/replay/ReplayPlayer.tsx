@@ -501,18 +501,20 @@ export function ReplayPlayer() {
               {chat.kind === "none" && (
                 <div className="replay-empty-chat">
                   <MessageSquare size={24} strokeWidth={1.5} />
-                  <h3>{downloading ? "Loading chat" : "Welcome to the replay."}</h3>
-                  <p>
+                  <h3>
+                    {downloading
+                      ? "Loading chat"
+                      : unavailable
+                        ? "Chat is unavailable"
+                        : "Welcome to the replay."}
+                  </h3>
+                  <p role={unavailable ? "alert" : undefined}>
                     {downloading
                       ? `${downloading.messages.toLocaleString()} messages saved. Keep watching while we get the rest.`
-                      : "The conversation will follow the video. Open its chat archive to join the moment."}
+                      : unavailable
+                        ? unavailable
+                        : "The conversation will follow the video. Open its chat archive to join the moment."}
                   </p>
-                  {unavailable && (
-                    <details>
-                      <summary>Chat is unavailable</summary>
-                      <p>{unavailable}</p>
-                    </details>
-                  )}
                   <button
                     type="button"
                     className="replay-button"

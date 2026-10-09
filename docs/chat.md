@@ -57,11 +57,16 @@ publication uses a hard link on the output filesystem when available, and falls
 back to an exclusive copy on filesystems without hard-link support.
 
 Twitch's internal API may reject cursor requests. In that case the downloader
-queries the last saved second again, verifies overlap, and deduplicates message
-IDs. It never advances by one second to escape a crowded page: an unresolvable
-overlap or pagination loop leaves a partial archive instead of silently skipping
-messages. A saved cursor may also expire; failures remain resumable but recovery
-depends on Twitch still serving the necessary history.
+pages by time: it asks for the block of chat that contains the last saved second
+and deduplicates message IDs. Blocks overlap, so a page can add messages up to
+30 seconds older than the newest saved one, and the export puts them back in
+order. When a block adds nothing new the request moves one second forward. The
+replay ends after 60 consecutive seconds without a new message, or when Twitch
+answers an offset past the video's length with an error. This relies on a block
+holding every message of the seconds it covers; a second with more messages
+than one block carries would lose the excess. A repeated cursor still stops a
+cursor download as stalled. A saved cursor may also expire; failures remain
+resumable but recovery depends on Twitch still serving the necessary history.
 
 `manifest.json` reports `partial`, `complete`, `empty`, `unavailable`, or `failed`.
 `complete` means the end of the **available replay** was reached, not proof that
