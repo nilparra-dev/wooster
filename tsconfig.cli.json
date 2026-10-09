@@ -10,7 +10,8 @@
     "exactOptionalPropertyTypes": true,
     "declaration": true,
     "sourceMap": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["node"]
   },
   "include": ["cli/src/**/*.ts"]
 }
