@@ -18,6 +18,26 @@ import { TwitchChatClient } from "../chat/twitch.js";
 import { ChatError, record, string } from "../chat/model.js";
 import { BodyTooLargeError, readTextBody } from "../net/body.js";
 import { fetchMedia } from "../net/media.js";
+import {
+  loadBroadcastInfo,
+  loadStoryboard,
+  type BroadcastInfo,
+  type Storyboard,
+} from "./broadcast.js";
+import {
+  avatarImageUrl,
+  badgeImageUrl,
+  emoteImageUrl,
+  fetchChatImage,
+  isEmoteProvider,
+  loadChatBadges,
+  loadThirdPartyEmotes,
+  thirdPartyEmoteUrls,
+  type ChannelRef,
+  type ChatBadge,
+  type EmoteProvider,
+  type ThirdPartyEmote,
+} from "./chat-images.js";
 import { byteRange, MediaRegistry } from "./media.js";
 import type { ResolveOptions, ResolveResult } from "../types.js";
 import type { PlayerSession } from "./types.js";
@@ -195,6 +215,52 @@ export async function startWatchServer(options: ServerOptions) {
   let liveChannel: string | null = null;
   let liveRefreshAt = 0;
   let liveRefreshTask: Promise<void> | null = null;
+  /**
+   * What the current session's broadcast is known by, and the lookups the
+   * player may ask for about it. Each runs at most once per session, on the
+   * first request, so a viewer who never opens chat costs Twitch nothing.
+   */
+  let broadcast: {
+    owner: ChannelRef;
+    /** Known for a hidden VOD, which Twitch no longer describes. */
+    startedAt: string | null;
+    storyboardUrl: string | null;
+  } | null = null;
+  let badgeTask: Promise<ChatBadge[]> | null = null;
+  let infoTask: Promise<{ info: BroadcastInfo; storyboard: Storyboard | null }> | null = null;
+  let emoteTask: Promise<{ emotes: ThirdPartyEmote[]; failed: EmoteProvider[] }> | null = null;
+  const lookupOptions = () => ({
+    signal: controller.signal,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
+  });
+  function broadcastInfo(known: NonNullable<typeof broadcast>) {
+    const media = registry;
+    const task = (infoTask ??= (async () => {
+      const info = await loadBroadcastInfo(known.owner, lookupOptions());
+      const index = info.storyboardUrl ?? known.storyboardUrl;
+      let storyboard: Storyboard | null = null;
+      if (index) {
+        try {
+          const found = await loadStoryboard(index, lookupOptions());
+          // Registering checks each sheet against the media allowlist and
+          // gives the player a local URL for it.
+          storyboard = found && {
+            ...found,
+            images: found.images.map((image) => media.register(image, false)),
+          };
+        } catch {
+          // Seek previews are an extra. Without them the timeline still
+          // shows the time, so their failure must not hide the broadcast.
+        }
+      }
+      return { info, storyboard };
+    })());
+    // Drop a failed lookup so a later request can retry it.
+    task.catch(() => {
+      if (infoTask === task) infoTask = null;
+    });
+    return task;
+  }
   let session: PlayerSession = {
     revision: 0,
     input: "",
@@ -294,9 +360,9 @@ export async function startWatchServer(options: ServerOptions) {
               source,
               signal,
               partialOutput: partial,
-              onProgress: ({ messages }) => {
+              onProgress: ({ messages, offsetSeconds }) => {
                 if (id === generation)
-                  session.chat = { kind: "downloading", messages };
+                  session.chat = { kind: "downloading", messages, offsetSeconds };
               },
             });
             await rm(partial, { force: true });
@@ -341,6 +407,10 @@ export async function startWatchServer(options: ServerOptions) {
     const previousChat = chatTask;
     chatPath = null;
     liveChannel = null;
+    broadcast = null;
+    badgeTask = null;
+    infoTask = null;
+    emoteTask = null;
     session = {
       revision: id,
       input,
@@ -359,6 +429,23 @@ export async function startWatchServer(options: ServerOptions) {
       registry = new MediaRegistry(prefix, liveMode ? { evictOldest: true } : {});
       const described = describeResult(result);
       if (result.kind === "live") liveChannel = result.channel;
+      const playlist = result.formats[0]?.url;
+      broadcast =
+        result.kind === "public"
+          ? {
+              owner: { kind: "video", videoId: result.videoId },
+              startedAt: null,
+              storyboardUrl: null,
+            }
+          : {
+              owner: { kind: "channel", login: result.channel },
+              startedAt: result.kind === "hidden" ? result.startedAt : null,
+              // A hidden VOD keeps its seek previews beside its playlists.
+              storyboardUrl:
+                result.kind === "hidden" && result.vodId && /^\d+$/.test(result.vodId) && playlist
+                  ? new URL(`../storyboards/${result.vodId}-info.json`, playlist).href
+                  : null,
+            };
       session = { ...session, state: "ready", ...described };
       if (liveMode) {
         // V1 has no live chat: the replay archiver needs a finished VOD.
@@ -367,7 +454,7 @@ export async function startWatchServer(options: ServerOptions) {
           message: "Live chat is not supported yet. Video still plays.",
         };
       } else if (options.autoChat !== false || options.chatFile) {
-        session.chat = { kind: "downloading", messages: 0 };
+        session.chat = { kind: "downloading", messages: 0, offsetSeconds: 0 };
         chatTask = previousChat.then(() =>
           prepareChat(id, target, result, signal),
         );
@@ -518,6 +605,105 @@ export async function startWatchServer(options: ServerOptions) {
           return;
         }
         await fileResponse(chatPath, request, response);
+        return;
+      }
+      if (route === "api/broadcast" || route === "api/badges" || route === "api/emotes") {
+        const known = broadcast;
+        if (!known || url.searchParams.get("revision") !== String(session.revision)) {
+          response.writeHead(404).end();
+          return;
+        }
+        if (route === "api/broadcast") {
+          const { info, storyboard } = await broadcastInfo(known);
+          json(response, 200, {
+            channel: info.channel && {
+              login: info.channel.login,
+              name: info.channel.name,
+              avatar: info.channel.avatar && `${prefix}api/avatar/${info.channel.avatar}`,
+            },
+            title: info.title,
+            category: info.category,
+            startedAt: info.startedAt ?? known.startedAt,
+            chapters: info.chapters.map((chapter) => ({
+              start: chapter.startSeconds,
+              title: chapter.title,
+            })),
+            storyboard,
+          });
+          return;
+        }
+        if (route === "api/emotes") {
+          const task = (emoteTask ??= broadcastInfo(known).then(({ info }) =>
+            loadThirdPartyEmotes(info.channel?.id ?? null, lookupOptions()),
+          ));
+          let found: Awaited<typeof task>;
+          try {
+            found = await task;
+          } catch (error) {
+            if (emoteTask === task) emoteTask = null;
+            throw error;
+          }
+          json(response, 200, {
+            emotes: found.emotes.map((emote) => ({
+              name: emote.name,
+              url: `${prefix}api/emote/${emote.provider}/${emote.id}`,
+            })),
+            failed: found.failed,
+          });
+          return;
+        }
+        const task = (badgeTask ??= loadChatBadges(known.owner, lookupOptions()));
+        let badges: ChatBadge[];
+        try {
+          badges = await task;
+        } catch (error) {
+          // Drop the failed lookup so a later request can retry it.
+          if (badgeTask === task) badgeTask = null;
+          throw error;
+        }
+        json(response, 200, {
+          badges: badges.map((badge) => ({
+            setId: badge.setId,
+            version: badge.version,
+            title: badge.title,
+            url: `${prefix}api/badge/${badge.id}`,
+          })),
+        });
+        return;
+      }
+      const image = /^api\/(emote|badge|avatar)\/(?:(bttv|ffz|7tv)\/)?([^/]+)$/.exec(route);
+      if (image) {
+        const [, kind, provider, id = ""] = image;
+        // Every candidate is built from a fixed host and a validated ID.
+        let targets: string[];
+        if (provider) targets = kind === "emote" && isEmoteProvider(provider) ? thirdPartyEmoteUrls(provider, id) : [];
+        else {
+          const target =
+            kind === "emote" ? emoteImageUrl(id) : kind === "badge" ? badgeImageUrl(id) : avatarImageUrl(id);
+          targets = target ? [target] : [];
+        }
+        const abort = new AbortController();
+        response.on("close", () => abort.abort());
+        let found = null;
+        for (const target of targets) {
+          found = await fetchChatImage(target, {
+            signal: abort.signal,
+            ...(options.fetch ? { fetch: options.fetch } : {}),
+          });
+          if (found) break;
+        }
+        if (!found) {
+          response.writeHead(404).end();
+          return;
+        }
+        // An ID always names the same image, and the capability path scopes
+        // the cache to this session.
+        response.writeHead(200, {
+          "Content-Type": found.type,
+          "Content-Length": found.bytes.length,
+          "Cache-Control": "private, max-age=86400",
+        });
+        response.end(request.method === "HEAD" ? undefined : found.bytes);
         return;
       }
       if (route.startsWith("media/")) {

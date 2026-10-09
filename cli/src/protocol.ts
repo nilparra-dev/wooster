@@ -82,7 +82,8 @@ export function parseStoredMessage(value: unknown): ChatMessage {
 /** Chat state carried by the player session bridge. */
 export type ChatStatus =
   | { kind: "idle" }
-  | { kind: "downloading"; messages: number }
+  /** `offsetSeconds` is the VOD offset of the last message saved so far. */
+  | { kind: "downloading"; messages: number; offsetSeconds: number }
   | { kind: "ready"; url: string; size: number; name: string }
   | { kind: "unavailable"; message: string };
 
