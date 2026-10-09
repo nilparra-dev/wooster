@@ -156,28 +156,151 @@ describe("Twitch chat protocol", () => {
   });
 });
 
+/**
+ * Offset-mode source modelled on Twitch responses: each request returns the
+ * block that covers the requested second, blocks share their boundary second,
+ * and the last block reports whether more follow.
+ */
+function offsetSource(blocks, { video = metadata, requested = [], beyond, open = false } = {}) {
+  return {
+    video: async () => video,
+    page: async ({ cursor, offsetSeconds }) => {
+      const second = cursor === null ? 0 : Math.floor(offsetSeconds);
+      requested.push(second);
+      const index = blocks.findIndex((block) => second <= block.at(-1).offsetSeconds);
+      if (index < 0) {
+        if (beyond) return beyond(second);
+        return { messages: [], nextCursor: null, continuation: "offset" };
+      }
+      const last = index === blocks.length - 1 && !open;
+      return { messages: blocks[index], nextCursor: last ? null : `block-${index}`, continuation: "offset" };
+    },
+  };
+}
+
 describe("resumable chat archive", () => {
-  it("requires overlap when falling back to offsets", async () => {
+  it("keeps offset pages that do not overlap saved messages", async () => {
     const output = await outputPath();
-    await assert.rejects(downloadChat({ vodId: "123", output, source: {
-      video: async () => metadata, page: async ({ cursor, offsetSeconds }) => {
-        if (cursor === null) return { messages: [a], nextCursor: "next", continuation: "cursor" };
-        assert.equal(offsetSeconds, 1);
-        return { messages: [c], nextCursor: null, continuation: "offset" };
-      },
-    } }), errorCode("COVERAGE_GAP"));
     const result = await downloadChat({ vodId: "123", output, source: {
-      video: async () => metadata, page: async () => ({ messages: [a, b, c], nextCursor: null, continuation: "offset" }),
+      video: async () => metadata, page: async ({ cursor }) => cursor === null
+        ? { messages: [a], nextCursor: "next", continuation: "cursor" }
+        : { messages: [c], nextCursor: null, continuation: "offset" },
     } });
+    assert.equal(result.status, "complete");
+    assert.deepEqual(JSON.parse(await readFile(output, "utf8")).messages, [a, c]);
+  });
+
+  it("steps past a second whose block holds no new messages instead of stalling", async () => {
+    // Measured on VOD 2874428374: asking for the last saved second returns the
+    // block that ends there; the next second returns the block that follows.
+    const output = await outputPath();
+    const requested = [];
+    const first = [message("m14", 14), message("m15", 15), message("m17", 17)];
+    const second = [message("m17", 17), message("m18", 18), message("m21", 21)];
+    const result = await downloadChat({ vodId: "123", output, source: offsetSource([first, second], { requested }) });
+    assert.equal(result.status, "complete");
+    assert.deepEqual(requested, [0, 17, 18]);
+    assert.deepEqual(JSON.parse(await readFile(output, "utf8")).messages.map((item) => item.id), ["m14", "m15", "m17", "m18", "m21"]);
+  });
+
+  it("exports late messages in chronological order", async () => {
+    // Measured on VOD 2885611944: the block after one ending at 663 re-sent
+    // 663 and added messages at 662 that the earlier block had omitted.
+    const output = await outputPath();
+    const first = [message("m655", 655), message("m663", 663)];
+    const second = [message("m663", 663), message("m662", 662), message("m664", 664)];
+    const result = await downloadChat({ vodId: "123", output, source: offsetSource([first, second], {
+      video: { ...metadata, durationSeconds: 1000 },
+    }) });
+    assert.equal(result.messageCount, 4);
+    assert.deepEqual(JSON.parse(await readFile(output, "utf8")).messages.map((item) => item.id), ["m655", "m662", "m663", "m664"]);
+  });
+
+  it("treats a GraphQL error past the VOD duration as the end of the replay", async () => {
+    // Measured on VOD 2885611944 (1758 s): offsets from 1763 on always return
+    // "service error" although the previous block still reported more pages.
+    const output = await outputPath();
+    const blocks = [[message("m95", 95), message("m101", 101)], [message("m101", 101), message("m102", 102)]];
+    const requested = [];
+    const result = await downloadChat({ vodId: "123", output, source: offsetSource(blocks, {
+      open: true, requested, beyond: () => { throw new ChatError("GRAPHQL_ERROR", "service error"); },
+    }) });
+    assert.deepEqual(requested, [0, 101, 102, 102, 103]);
+    assert.equal(result.status, "complete");
     assert.equal(result.messageCount, 3);
   });
-  it("does not skip a crowded second when offset pagination cannot advance", async () => {
+
+  it("keeps GraphQL errors inside the VOD duration as a resumable failure", async () => {
     const output = await outputPath();
     await assert.rejects(downloadChat({ vodId: "123", output, source: {
-      video: async () => metadata, page: async ({ cursor }) => ({
-        messages: [a], nextCursor: cursor === null ? "first" : "different", continuation: "offset",
-      }),
-    } }), errorCode("PAGINATION_STALLED"));
+      video: async () => metadata, page: async ({ cursor }) => {
+        if (cursor === null) return { messages: [a], nextCursor: "next", continuation: "cursor" };
+        throw new ChatError("GRAPHQL_ERROR", "service error");
+      },
+    } }), errorCode("GRAPHQL_ERROR"));
+    assert.equal(JSON.parse(await readFile(join(`${output}.archive`, "manifest.json"), "utf8")).status, "partial");
+  });
+
+  it("ends offset pagination after a minute of video without new messages", async () => {
+    const output = await outputPath();
+    const requested = [];
+    const result = await downloadChat({ vodId: "123", output, source: {
+      video: async () => null,
+      page: async ({ cursor, offsetSeconds }) => {
+        requested.push(cursor === null ? 0 : Math.floor(offsetSeconds));
+        return { messages: [a], nextCursor: "same", continuation: "offset" };
+      },
+    } });
+    assert.equal(result.status, "complete");
+    assert.equal(result.messageCount, 1);
+    assert.equal(requested.at(-1), 60);
+    // The end of the replay is committed, so a resume does not ask again.
+    await rm(output);
+    await downloadChat({ vodId: "123", output, source: {
+      video: async () => null, page: async () => { throw new Error("must stay offline"); },
+    } });
+  });
+
+  it("exports saved messages as a partial snapshot when the download fails", async () => {
+    const output = await outputPath();
+    const partialOutput = output.replace(/\.json$/, ".partial.json");
+    const failing = { video: async () => metadata, page: async ({ cursor }) => {
+      if (cursor === null) return { messages: [a, b], nextCursor: "next" };
+      throw new ChatError("NETWORK_ERROR", "disconnected");
+    } };
+    await assert.rejects(downloadChat({ vodId: "123", output, source: failing, partialOutput }), errorCode("NETWORK_ERROR"));
+    const snapshot = JSON.parse(await readFile(partialOutput, "utf8"));
+    assert.equal(snapshot.status, "partial");
+    assert.equal(snapshot.error.code, "NETWORK_ERROR");
+    assert.deepEqual(snapshot.messages, [a, b]);
+    await assert.rejects(stat(output), { code: "ENOENT" });
+    // A later failure replaces the older snapshot.
+    await assert.rejects(downloadChat({ vodId: "123", output, source: failing, partialOutput }), errorCode("NETWORK_ERROR"));
+    assert.equal(JSON.parse(await readFile(partialOutput, "utf8")).messageCount, 2);
+  });
+
+  it("writes no partial snapshot before any message is saved", async () => {
+    const output = await outputPath();
+    const partialOutput = output.replace(/\.json$/, ".partial.json");
+    await assert.rejects(downloadChat({ vodId: "123", output, partialOutput, source: {
+      video: async () => metadata, page: async () => { throw new ChatError("CHAT_UNAVAILABLE", "gone"); },
+    } }), errorCode("CHAT_UNAVAILABLE"));
+    await assert.rejects(stat(partialOutput), { code: "ENOENT" });
+  });
+
+  it("resumes an offset journal with late messages without its checkpoint", async () => {
+    const output = await outputPath();
+    const first = [message("m1", 1), message("m5", 5)];
+    const second = [message("m5", 5), message("m4", 4), message("m9", 9)];
+    const blocks = [first, second, [message("m9", 9), message("m12", 12)]];
+    const source = offsetSource(blocks);
+    const controller = new AbortController();
+    let pages = 0;
+    await assert.rejects(downloadChat({ vodId: "123", output, source, signal: controller.signal,
+      onProgress: () => { if (++pages === 2) controller.abort(); } }));
+    await rm(join(`${output}.archive`, "checkpoint.json"));
+    await downloadChat({ vodId: "123", output, source });
+    assert.deepEqual(JSON.parse(await readFile(output, "utf8")).messages.map((item) => item.id), ["m1", "m4", "m5", "m9", "m12"]);
   });
   it("exports all pages and deduplicates IDs while preserving equal-time messages", async () => {
     const output = await outputPath();

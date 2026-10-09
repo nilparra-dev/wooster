@@ -24,7 +24,9 @@ launcher tries to recover chat using the exact VOD identity, independently of
 playback. Completed chats are cached under `~/.cache/twitch-vod-m3u8/chat/`.
 An interrupted download keeps its journal there and resumes the next time the
 same VOD is opened; the journal is removed once the chat is complete. A failed
-chat download does not stop the video.
+chat download does not stop the video: if Twitch stops serving the replay
+midway, the messages saved so far are shown as a partial archive, and the
+chat panel says why when there are none.
 No full video is written to disk. Streaming still requires Internet access and
 the CDN fragments to exist; it is not a permanent offline archive.
 

@@ -80,6 +80,13 @@ npm publish dates.
   with exit code 3, and a `NOT_FOUND` after partial answers says how many
   requests went unanswered.
 - Downloads repair unset MPEG-TS timestamps that made VLC jump to ~26.5 hours.
+- `chat` and `watch` finish archiving a replay that Twitch only serves by time
+  offset. Overlapping pages are deduplicated and put back in order, and the
+  end of the replay is recognised, where the download used to stop as stalled
+  or out of order and leave a partial archive.
+- `watch` shows the chat saved so far, marked partial, when Twitch stops
+  serving a replay midway, and the player states why chat is unavailable
+  instead of folding the reason away.
 - Download segment URLs and redirects must stay on Twitch's media domains.
 - `download` warns about an output whose duration differs from the playlist
   even when stderr is not a terminal, so scripts and logs see it.

@@ -249,7 +249,10 @@ export async function startWatchServer(options: ServerOptions) {
       let path: string;
       if (options.chatFile) path = resolve(options.chatFile);
       else {
-        const source = new TwitchChatClient({ signal });
+        const source = new TwitchChatClient({
+          signal,
+          ...(options.fetch ? { fetch: options.fetch } : {}),
+        });
         const vodId =
           result.kind === "public"
             ? result.videoId
@@ -268,20 +271,31 @@ export async function startWatchServer(options: ServerOptions) {
           exists = false;
         }
         if (!exists) {
-          await downloadChat({
-            vodId,
-            output: path,
-            source,
-            signal,
-            onProgress: ({ messages }) => {
-              if (id === generation)
-                session.chat = { kind: "downloading", messages };
-            },
-          });
-          // The journal only serves to resume an unfinished download. Once the
-          // export exists the cache never reads it again, and keeping it would
-          // roughly double the disk used by every watched VOD.
-          await rm(`${path}.archive`, { recursive: true, force: true });
+          // Show whatever was saved when Twitch stops serving the replay. The
+          // complete export is still attempted, and resumed, on the next load.
+          const partial = `${path.slice(0, -".json".length)}.partial.json`;
+          try {
+            await downloadChat({
+              vodId,
+              output: path,
+              source,
+              signal,
+              partialOutput: partial,
+              onProgress: ({ messages }) => {
+                if (id === generation)
+                  session.chat = { kind: "downloading", messages };
+              },
+            });
+            await rm(partial, { force: true });
+            // The journal only serves to resume an unfinished download. Once the
+            // export exists the cache never reads it again, and keeping it would
+            // roughly double the disk used by every watched VOD.
+            await rm(`${path}.archive`, { recursive: true, force: true });
+          } catch (error) {
+            if (signal.aborted || !(await stat(partial).then(() => true, () => false)))
+              throw error;
+            path = partial;
+          }
         }
       }
       const info = await stat(path);
