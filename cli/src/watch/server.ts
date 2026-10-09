@@ -59,6 +59,19 @@ const contentTypes: Record<string, string> = {
 const MEDIA_CONNECT_TIMEOUT_MS = 30_000;
 /** Time allowed between body chunks before the upstream stream is cancelled. */
 const MEDIA_IDLE_TIMEOUT_MS = 30_000;
+/**
+ * Drop the `?t=1h2m3s` start time of a Twitch share link. The resolver takes
+ * the broadcast alone; the session input keeps the link as it was given, so
+ * the player can read the time from it.
+ */
+export function withoutStartTime(input: string): string {
+  if (!/^https?:\/\//i.test(input) || !URL.canParse(input)) return input;
+  const url = new URL(input);
+  const time = url.searchParams.get("t");
+  if (!time || !/^(?:\d{1,3}h)?(?:\d{1,5}m)?(?:\d{1,7}s?)?$/.test(time)) return input;
+  url.searchParams.delete("t");
+  return url.href;
+}
 const json = (response: ServerResponse, status: number, body: unknown) => {
   response.writeHead(status, { "Content-Type": "application/json" });
   response.end(JSON.stringify(body));
@@ -339,7 +352,8 @@ export async function startWatchServer(options: ServerOptions) {
       chat: { kind: "idle" },
     };
     try {
-      const result = await resolveForSession(input, channel, signal);
+      const target = withoutStartTime(input);
+      const result = await resolveForSession(target, channel, signal);
       if (id !== generation || closed) return;
       previousRegistry = registry;
       registry = new MediaRegistry(prefix, liveMode ? { evictOldest: true } : {});
@@ -355,7 +369,7 @@ export async function startWatchServer(options: ServerOptions) {
       } else if (options.autoChat !== false || options.chatFile) {
         session.chat = { kind: "downloading", messages: 0 };
         chatTask = previousChat.then(() =>
-          prepareChat(id, input, result, signal),
+          prepareChat(id, target, result, signal),
         );
       }
     } catch (error) {

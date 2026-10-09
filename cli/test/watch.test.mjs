@@ -6,7 +6,11 @@ import { join } from "node:path";
 import { get } from "node:http";
 import { allowedMediaUrl, fetchMedia } from "../../dist/net/media.js";
 import { MediaRegistry, byteRange } from "../../dist/watch/media.js";
-import { startWatchServer, readChunkWithIdleTimeout } from "../../dist/watch/server.js";
+import {
+  startWatchServer,
+  readChunkWithIdleTimeout,
+  withoutStartTime,
+} from "../../dist/watch/server.js";
 
 const media = "https://vod-secure.twitch.tv.invalid/file.m3u8";
 const source = "https://video-weaver.test.ttvnw.net/archive/index.m3u8";
@@ -383,4 +387,26 @@ test("player assets revalidate with an ETag while the session stays no-store", a
 
   const session = await fetch(server.api + "session");
   assert.equal(session.headers.get("cache-control"), "no-store");
+});
+test("a share link's start time is kept in the session but not sent to the resolver", async (t) => {
+  const resolved = [];
+  const server = await fixture(t, {
+    input: "https://www.twitch.tv/videos/123?t=1h2m3s",
+    resolver: async (input) => {
+      resolved.push(input);
+      return result();
+    },
+  });
+  const session = await ready(server);
+  assert.deepEqual(resolved, ["https://www.twitch.tv/videos/123"]);
+  assert.equal(session.input, "https://www.twitch.tv/videos/123?t=1h2m3s");
+  // Only a time is removed: other parameters and targets pass through untouched.
+  for (const input of [
+    "https://tracker.test/streams/1?t=token",
+    "https://tracker.test/streams/1?t=",
+    "video:channel_1_2",
+    "123?t=5m",
+  ])
+    assert.equal(withoutStartTime(input), input);
+  assert.equal(withoutStartTime("https://tracker.test/s?id=7&t=90"), "https://tracker.test/s?id=7");
 });
