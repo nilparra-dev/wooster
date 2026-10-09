@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from "react";
+import { useCallback, useEffect, useRef, type RefObject } from "react";
 import type Hls from "hls.js";
 
 /**
@@ -6,6 +6,9 @@ import type Hls from "hls.js";
  * shell does not pay for it unless remote streaming is actually used: local
  * file playback never loads the library. Live sources tune the latency
  * targets and map fatal network errors to a live-specific message.
+ *
+ * Returns a function giving the position that rejoins a live broadcast, or
+ * null when the source is not live or hls.js is not the one playing it.
  */
 export function useHls(
   video: RefObject<HTMLVideoElement>,
@@ -13,7 +16,8 @@ export function useHls(
   active: boolean,
   onError: (message: string) => void,
   live = false,
-) {
+): () => number | null {
+  const instance = useRef<Hls | null>(null);
   useEffect(() => {
     const element = video.current;
     if (!element || !url || !active) return;
@@ -50,6 +54,7 @@ export function useHls(
               }
             : { enableWorker: false, maxBufferLength: 30, backBufferLength: 30 },
         );
+        instance.current = player;
         let recovered = false;
         player.on(Hls.Events.ERROR, (_event, data) => {
           if (!data.fatal) return;
@@ -76,6 +81,7 @@ export function useHls(
 
     return () => {
       cancelled = true;
+      instance.current = null;
       player?.destroy();
       if (usedNative) {
         element.removeAttribute("src");
@@ -83,4 +89,5 @@ export function useHls(
       }
     };
   }, [video, url, active, onError, live]);
+  return useCallback(() => instance.current?.liveSyncPosition ?? null, []);
 }

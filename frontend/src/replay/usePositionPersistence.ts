@@ -3,13 +3,19 @@ import { useCallback, useEffect, useRef, type RefObject } from "react";
 /**
  * Persist the playback position per source key and restore it when the same
  * source is opened again. Browser storage is optional: every failure is
- * ignored because playback works without it.
+ * ignored because playback works without it. `onSave` receives each position
+ * as it is written, with the media duration (0 while unknown).
  */
 export function usePositionPersistence(
   storageKey: string,
   video: RefObject<HTMLVideoElement>,
+  onSave?: (time: number, duration: number) => void,
 ) {
   const lastSaved = useRef(0);
+  const saved = useRef(onSave);
+  useEffect(() => {
+    saved.current = onSave;
+  });
 
   // A new source starts a new throttle window.
   useEffect(() => {
@@ -26,6 +32,10 @@ export function usePositionPersistence(
       } catch {
         /* Playback works without browser storage. */
       }
+      saved.current?.(
+        element.currentTime,
+        Number.isFinite(element.duration) ? element.duration : 0,
+      );
     },
     [storageKey, video],
   );

@@ -147,6 +147,18 @@ export async function indexArchive(
   };
 }
 
+/** Number of entries strictly before `time`. */
+function lowerBound(entries: readonly { time: number }[], time: number): number {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (entries[middle].time < time) low = middle + 1;
+    else high = middle;
+  }
+  return low;
+}
+
 export function upperBound(entries: readonly { time: number }[], time: number): number {
   let low = 0;
   let high = entries.length;
@@ -178,55 +190,162 @@ async function readEntries(
     );
 }
 
+
+/** A run of consecutive messages and the archive position of its first one. */
+export interface MessageRun {
+  start: number;
+  messages: ChatMessage[];
+}
+
+const MAX_RUN = 100;
+
+function checkLimit(limit: number): void {
+  if (!Number.isInteger(limit) || limit < 1 || limit > MAX_RUN)
+    throw new Error("Invalid replay window.");
+}
+
+/** The last `limit` messages sent at or before `time`. */
 export async function readWindow(
   index: ArchiveIndex,
   time: number,
   limit = 80,
-): Promise<ChatMessage[]> {
-  if (!Number.isFinite(time) || !Number.isInteger(limit) || limit < 1 || limit > 100)
-    throw new Error("Invalid replay window.");
+): Promise<MessageRun> {
+  if (!Number.isFinite(time)) throw new Error("Invalid replay window.");
+  checkLimit(limit);
   const end = upperBound(index.entries, time);
-  return readEntries(index, Math.max(0, end - limit), end);
+  const start = Math.max(0, end - limit);
+  return { start, messages: await readEntries(index, start, end) };
 }
 
+/** The `limit` messages that precede archive position `before`. */
+export async function readBefore(
+  index: ArchiveIndex,
+  before: number,
+  limit = 80,
+): Promise<MessageRun> {
+  if (!Number.isInteger(before) || before < 0) throw new Error("Invalid replay window.");
+  checkLimit(limit);
+  const end = Math.min(before, index.entries.length);
+  const start = Math.max(0, end - limit);
+  return { start, messages: await readEntries(index, start, end) };
+}
+
+/**
+ * Count messages per equal slice of the replay clock, from `start` to `end`
+ * inclusive. Reads only the index, so it costs no file access.
+ */
+export function messageActivity(
+  index: ArchiveIndex,
+  start: number,
+  end: number,
+  buckets: number,
+): number[] {
+  if (
+    !Number.isFinite(start) ||
+    !Number.isFinite(end) ||
+    end <= start ||
+    !Number.isInteger(buckets) ||
+    buckets < 1 ||
+    buckets > 1000
+  )
+    throw new Error("Invalid activity range.");
+  const width = (end - start) / buckets;
+  const counts: number[] = [];
+  let previous = lowerBound(index.entries, start);
+  for (let bucket = 1; bucket <= buckets; bucket += 1) {
+    // The last edge is `end` itself, not a sum that rounding could move.
+    const edge = upperBound(index.entries, bucket === buckets ? end : start + width * bucket);
+    counts.push(edge - previous);
+    previous = edge;
+  }
+  return counts;
+}
+
+export interface SearchQuery {
+  /** Exact login or display name from a `from:name` term, lowercased. */
+  user: string | null;
+  /** Remaining text, lowercased. */
+  text: string;
+}
+
+/** Split a search box value into its `from:name` filter and free text. */
+export function parseSearchQuery(query: string): SearchQuery {
+  let user: string | null = null;
+  const words: string[] = [];
+  for (const word of query.trim().split(/\s+/)) {
+    const name = /^from:(.+)$/i.exec(word)?.[1];
+    if (name && user === null) user = name.toLocaleLowerCase();
+    else if (word) words.push(word);
+  }
+  return { user, text: words.join(" ").toLocaleLowerCase() };
+}
+
+// Without a `from:` filter the text may match the author as well, so typing a
+// name finds that person's messages. With one, the text narrows their messages.
+function matches(message: ChatMessage, query: SearchQuery): boolean {
+  const login = message.user?.login.toLocaleLowerCase() ?? "";
+  const name = message.user?.displayName.toLocaleLowerCase() ?? "";
+  const text = message.text.toLocaleLowerCase();
+  if (query.user === null) return `${name} ${login} ${text}`.includes(query.text);
+  return (query.user === login || query.user === name) && text.includes(query.text);
+}
+
+export interface SearchPage {
+  messages: ChatMessage[];
+  /** Archive position to resume from, or null when the archive is exhausted. */
+  next: number | null;
+}
+
+export const SEARCH_PAGE_SIZE = 100;
+
+/**
+ * Scan the archive in order from position `from` and return the next page of
+ * matches. A cancelled or empty search returns an empty, exhausted page.
+ */
 export async function searchArchive(
   index: ArchiveIndex,
   query: string,
   cancelled: () => boolean,
-): Promise<ChatMessage[]> {
-  const text = query.trim().toLocaleLowerCase();
-  if (!text) return [];
-  const matches: ChatMessage[] = [];
+  from = 0,
+): Promise<SearchPage> {
+  const parsed = parseSearchQuery(query);
+  const none: SearchPage = { messages: [], next: null };
+  if (!parsed.text && parsed.user === null) return none;
+  if (!Number.isInteger(from) || from < 0) throw new Error("Invalid search position.");
+  const found: ChatMessage[] = [];
   const batchSize = 80;
   // Read batches in order but keep a few range reads in flight, so a remote
   // archive is not scanned one HTTP request at a time.
   const lookahead = 4;
-  const pending: Array<Promise<ChatMessage[]>> = [];
-  let next = 0;
+  const pending: Array<{ start: number; batch: Promise<ChatMessage[]> }> = [];
+  let next = from;
   const fill = () => {
     while (pending.length < lookahead && next < index.entries.length) {
       const start = next;
       next += batchSize;
-      const end = Math.min(start + batchSize, index.entries.length);
-      pending.push(readEntries(index, start, end));
+      const batch = readEntries(index, start, Math.min(next, index.entries.length));
+      // A page can fill, or the search be cancelled, before the batches read
+      // ahead of it are awaited; their failures then have no one to report to.
+      batch.catch(() => undefined);
+      pending.push({ start, batch });
     }
   };
   fill();
-  while (pending.length > 0 && matches.length < 100) {
-    if (cancelled()) return [];
-    const batch = pending.shift();
+  for (;;) {
+    if (cancelled()) return none;
+    const current = pending.shift();
+    if (!current) return { messages: found, next: null };
     fill();
-    if (!batch) break;
-    for (const message of await batch) {
-      if (cancelled()) return [];
-      if (
-        `${message.user?.displayName ?? ""} ${message.user?.login ?? ""} ${message.text}`
-          .toLocaleLowerCase()
-          .includes(text)
-      )
-        matches.push(message);
-      if (matches.length === 100) break;
+    const batch = await current.batch;
+    for (let offset = 0; offset < batch.length; offset += 1) {
+      if (cancelled()) return none;
+      const message = batch[offset];
+      if (!matches(message, parsed)) continue;
+      found.push(message);
+      if (found.length === SEARCH_PAGE_SIZE) {
+        const resume = current.start + offset + 1;
+        return { messages: found, next: resume < index.entries.length ? resume : null };
+      }
     }
   }
-  return matches;
 }
