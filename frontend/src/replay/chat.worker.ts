@@ -1,4 +1,10 @@
-import { readWindow, searchArchive, type ArchiveIndex } from "./archive";
+import {
+  messageActivity,
+  readBefore,
+  readWindow,
+  searchArchive,
+  type ArchiveIndex,
+} from "./archive";
 import { createIndexedDbCache, loadArchive, type IndexCache } from "./index-cache";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
 import { createRemoteFile } from "./remote-file";
@@ -38,13 +44,30 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
         break;
       case "window":
         if (archive)
-          send({ kind: "window", id: data.id, messages: await readWindow(archive, data.time) });
+          send({ kind: "window", id: data.id, ...(await readWindow(archive, data.time)) });
+        break;
+      case "history":
+        if (archive)
+          send({ kind: "history", id: data.id, ...(await readBefore(archive, data.before)) });
+        break;
+      case "activity":
+        if (archive)
+          send({
+            kind: "activity",
+            id: data.id,
+            counts: messageActivity(archive, data.start, data.end, data.buckets),
+          });
         break;
       case "search": {
         searchId = data.id;
         if (!archive) break;
-        const messages = await searchArchive(archive, data.query, () => searchId !== data.id);
-        if (searchId === data.id) send({ kind: "search", id: data.id, messages });
+        const page = await searchArchive(
+          archive,
+          data.query,
+          () => searchId !== data.id,
+          data.from,
+        );
+        if (searchId === data.id) send({ kind: "search", id: data.id, ...page });
         break;
       }
     }

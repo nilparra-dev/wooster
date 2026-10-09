@@ -5,6 +5,8 @@ export type { PlayerSession } from "@chat-protocol";
 
 export interface PlayerBridge {
   session: PlayerSession;
+  /** Base URL of the watch server's API, ending in a slash. */
+  api: string;
   load: (input: string, channel?: string) => Promise<void>;
 }
 function parseSession(value: unknown): PlayerSession {
@@ -100,6 +102,7 @@ export function usePlayerBridge(): { bridge?: PlayerBridge; error: string | null
     error,
     bridge: {
       session,
+      api,
       load: async (input, channel) => {
         const response = await fetch(`${api}resolve`, {
           method: "POST",

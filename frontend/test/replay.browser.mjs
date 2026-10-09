@@ -71,8 +71,15 @@ try {
   await page.waitForFunction(() => document.querySelector("video")?.readyState >= 2);
   assert.equal(await page.locator("video").evaluate(video => video.muted), true, "source changes retain mute");
   await page.getByRole("button", { name: "Unmute", exact: true }).click();
-  await page.getByLabel("Playback speed").selectOption("2");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("menuitem", { name: /^Playback speed/ }).click();
+  await page.getByRole("menuitemradio", { name: "2×", exact: true }).click();
   assert.equal(await page.locator("video").evaluate((video) => video.playbackRate), 2);
+  assert.equal(await page.getByRole("menu").count(), 0, "choosing a speed closes the menu");
+  await page.locator("video").click();
+  await page.getByRole("button", { name: "Pause", exact: true }).waitFor();
+  await page.keyboard.press("Space");
+  await page.getByRole("button", { name: "Play", exact: true }).waitFor();
   await page.getByRole("button", { name: "Fullscreen", exact: true }).click();
   await page.waitForFunction(() => Boolean(document.fullscreenElement));
   await page.getByRole("button", { name: "Exit fullscreen", exact: true }).click();
@@ -131,10 +138,23 @@ try {
   assert.ok(
     await page.locator(".replay-chat-log").evaluate((log) => log.scrollHeight > log.clientHeight),
   );
+  await page.locator(".vod-activity path").waitFor({ state: "attached" });
   await page.locator(".replay-chat-log").evaluate((log) => {
     log.scrollTop = 0;
   });
-  await page.getByRole("button", { name: "Follow replay", exact: true }).click();
+  // Scrolling back prepends older messages without moving the one in view.
+  await page.waitForFunction(
+    () => document.querySelectorAll(".replay-chat-log .replay-message").length > 80,
+  );
+  assert.ok(
+    await page.locator(".replay-chat-log").evaluate((log) => log.scrollTop > 0),
+    "older messages must not push the viewer to a different place",
+  );
+  assert.deepEqual(await dimensions(), initial);
+  await page.getByRole("button", { name: "Chat paused due to scroll", exact: true }).click();
+  // The click left the pointer resting on the log, which holds the chat still.
+  await page.getByText("Paused while you hover", { exact: true }).waitFor();
+  await page.mouse.move(400, 300);
   await page.waitForFunction(() => {
     const log = document.querySelector(".replay-chat-log");
     return log.scrollHeight - log.scrollTop - log.clientHeight < 50;
@@ -146,6 +166,17 @@ try {
   await page.getByRole("button", { name: "Hide chat", exact: true }).click();
   assert.equal(await page.getByLabel("Replay chat", { exact: true }).isVisible(), false);
   await page.getByRole("button", { name: "Show chat", exact: true }).click();
+  // Dragging the chat's edge resizes the column without growing the page.
+  const chatWidth = () =>
+    page.locator(".replay-chat").evaluate((chat) => Math.round(chat.getBoundingClientRect().width));
+  const edge = await page.getByRole("separator", { name: "Resize chat" }).boundingBox();
+  assert.equal(await chatWidth(), 340);
+  await page.mouse.move(edge.x + 2, edge.y + 200);
+  await page.mouse.down();
+  await page.mouse.move(edge.x + 2 - 120, edge.y + 200, { steps: 4 });
+  await page.mouse.up();
+  assert.equal(await chatWidth(), 460);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.getByRole("button", { name: "Theater mode", exact: true }).click();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "Theater mode", exact: true }).waitFor();

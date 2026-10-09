@@ -38,6 +38,31 @@ npm publish dates.
   BetterTTV, FrankerFaceZ and 7TV emote lists, and the broadcast's title,
   category, chapters and seek previews. For the third-party emotes it contacts
   those three services, which it did not before.
+- The player draws chat emotes and badges, and BetterTTV, FrankerFaceZ and 7TV
+  emotes, from the images `watch` proxies. Without the server, in the static
+  page, they stay as text.
+- The player shows who broadcast a video, its title, category and date, taken
+  from Twitch, with the chapter being played. The timeline marks where
+  chapters begin and previews the frame under the pointer.
+- Chat marks @mentions, makes links clickable, lightens name colours that would
+  not read on the dark panel, holds still under a resting mouse, and opens a
+  card for an author with their messages.
+- The chat column can be resized by dragging its edge and collapsed from its
+  header; a button on the video brings it back.
+- Chat in the player scrolls back through older messages, pages search results
+  past the first 100, marks the matched text and filters by author with
+  `from:name` or a click on a name.
+- The player timeline shows the time under the pointer and where chat was
+  busiest. A live broadcast gets a Live indicator that jumps back to the
+  newest media.
+- Player shortcuts: Space plays and pauses, `J` and `L` seek, the up and down
+  arrows change the volume, a click on the video plays or pauses it and a
+  double click toggles fullscreen. Picture-in-picture has a button.
+- The player remembers volume, speed, chat visibility and each video's chat
+  offset, lists recently watched broadcasts on its start screen and accepts a
+  dropped video or `chat.json`.
+- A Twitch link with `?t=1h2m3s` starts at that moment, in `watch` and when
+  pasted into the player, which can also copy a link to the current time.
 
 ### Changed
 
@@ -70,6 +95,20 @@ npm publish dates.
 - The player caches the chat index in the browser, so reopening an archive does
   not rescan it.
 - The session bridge reports the VOD offset a chat download has reached.
+- The player header carries the Wooster name. The broadcast title appears once,
+  below the video, and Reconnect moved next to the playback error it answers.
+- Chat timestamps are shortened to `m:ss` until the first hour and, while the
+  chat follows the video, appear when a message is hovered or focused. The
+  chat log is no longer announced message by message to screen readers.
+- The player controls float over the video and hide while it plays untouched.
+  Quality and speed moved into one settings menu, where Twitch's `chunked` and
+  `audio_only` renditions read Source and Audio only. The volume slider opens
+  from the speaker, and shortcuts confirm what they did on the video.
+- The header is lower once a video is open, and the chat toggle moved from it
+  to the chat itself.
+- A quality change or a reconnect keeps a playing video playing. Speed is no
+  longer reset to 1× when another video opens.
+- The player shows how far a chat download has reached as a percentage.
 
 ### Fixed
 
@@ -99,6 +138,8 @@ npm publish dates.
 - The player keeps mute and volume across source changes.
 - `watch` accepts a Twitch link that carries a `?t=` start time, which the
   resolver rejected as unsupported input.
+- The player no longer shows "No matching messages" while a search is still
+  waiting to start.
 - Playlists, tracker pages and Twitch API answers are read with an 8 MB limit,
   and a segment that declares no length is cut off at the segment limit
   instead of being buffered whole.

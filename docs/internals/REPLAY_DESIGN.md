@@ -44,5 +44,17 @@ tests custom playback controls plus long, continuously changing chat content.
 It requires no external media or Twitch availability. CI runs the same check.
 Real recovered HLS playback is also checked locally when a VOD is available.
 
-Emote and badge images are a separate archive feature. They need cached assets
-and accurate identity data; the UI must not fabricate replacements.
+Emote and badge images come from Twitch through the watch server, by the IDs
+stored in the archive and the badge sets Twitch reports for the channel. The UI
+does not fabricate replacements: an image that is missing falls back to the
+emote's name or the badge's tooltip. Keeping the images with the archive, for
+offline replay, is still a separate feature.
+
+The marks above the timeline count the archive's messages per slice of the
+video. They are data, not decoration, and are absent when there is no chat.
+
+The controls float over the video and step aside while it plays, as viewers
+of Twitch expect. They never hide from someone using them: a paused video, an
+open menu, a resting pointer or keyboard focus inside the bar keeps them up.
+The channel, title, category and chapters shown are the ones Twitch reports;
+nothing is shown for a broadcast Twitch no longer describes.
