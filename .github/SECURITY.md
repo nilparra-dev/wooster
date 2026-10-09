@@ -10,7 +10,18 @@ credentials.
 The `watch` command starts a local player server. That server binds to
 `127.0.0.1`, uses a random capability path, checks Host and Origin, only
 proxies media URLs on Twitch's CDN allowlist, and never exposes playback
-credentials to the browser. Do not expose it to a network.
+credentials to the browser. For the page it also fetches emote, badge and
+channel images from `static-cdn.jtvnw.net`, by validated ID and without
+following redirects, and asks Twitch's GraphQL endpoint for the channel's
+badges and the broadcast's title, category and chapters.
+
+Chats lean on three third-party emote services, so `watch` contacts them too
+once a chat is shown: the emote lists of `api.betterttv.net`,
+`api.frankerfacez.com` and `7tv.io`, requested with the channel's public
+Twitch user ID, and the images on `cdn.betterttv.net`, `cdn.frankerfacez.com`
+and `cdn.7tv.app`. Those requests carry no credentials, do not follow
+redirects, and their answers are size-limited and validated before use. Do
+not expose the server to a network.
 
 ## Reporting a vulnerability
 

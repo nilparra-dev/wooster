@@ -410,3 +410,234 @@ test("a share link's start time is kept in the session but not sent to the resol
     assert.equal(withoutStartTime(input), input);
   assert.equal(withoutStartTime("https://tracker.test/s?id=7&t=90"), "https://tracker.test/s?id=7");
 });
+test("chat images are proxied only from the Twitch CDN, by validated ID", async (t) => {
+  const calls = [];
+  const server = await fixture(t, {
+    fetch: async (url, init) => {
+      calls.push({ url, init });
+      if (url.endsWith("/emoticons/v2/404/default/dark/2.0")) return new Response("", { status: 404 });
+      if (url.endsWith("/emoticons/v2/html/default/dark/2.0"))
+        return new Response("<script>", { headers: { "content-type": "text/html" } });
+      return new Response("png", { headers: { "content-type": "image/png" } });
+    },
+  });
+  const emote = await fetch(server.api + "emote/emotesv2_abc123");
+  assert.equal(emote.status, 200);
+  assert.equal(emote.headers.get("content-type"), "image/png");
+  assert.equal(emote.headers.get("cache-control"), "private, max-age=86400");
+  assert.equal(await emote.text(), "png");
+  assert.equal(
+    calls[0].url,
+    "https://static-cdn.jtvnw.net/emoticons/v2/emotesv2_abc123/default/dark/2.0",
+  );
+  assert.equal(calls[0].init.redirect, "error");
+
+  const badge = await fetch(server.api + "badge/6ae7ce40-99e6-4d83-8487-f8b990bf5f32");
+  assert.equal(badge.status, 200);
+  assert.equal(
+    calls[1].url,
+    "https://static-cdn.jtvnw.net/badges/v1/6ae7ce40-99e6-4d83-8487-f8b990bf5f32/2",
+  );
+
+  // An ID from a chat archive must not reach another path or host.
+  for (const id of ["..%2F..%2Fsecret", "a.b", "a%3Fb", "%40evil.test", "x".repeat(65)])
+    assert.equal((await fetch(server.api + "emote/" + id)).status, 404, id);
+  assert.equal((await fetch(server.api + "badge/not-a-uuid")).status, 404);
+  assert.equal(calls.length, 2);
+
+  assert.equal((await fetch(server.api + "emote/404")).status, 404);
+  assert.equal((await fetch(server.api + "emote/html")).status, 502);
+});
+test("badges merge the channel set over the global one and drop foreign images", async (t) => {
+  const image = (id) => `https://static-cdn.jtvnw.net/badges/v1/${id}/2`;
+  const global = "11111111-1111-4111-8111-111111111111";
+  const channel = "22222222-2222-4222-8222-222222222222";
+  const requests = [];
+  const server = await fixture(t, {
+    input: "123",
+    fetch: async (url, init) => {
+      requests.push(JSON.parse(init.body));
+      return Response.json({
+        data: {
+          badges: [
+            { setID: "subscriber", version: "0", title: "Subscriber", imageURL: image(global) },
+            { setID: "moderator", version: "1", title: "Moderator", imageURL: image(global) },
+            { setID: "evil", version: "1", title: "Evil", imageURL: "https://evil.test/badge.png" },
+          ],
+          video: {
+            owner: {
+              broadcastBadges: [
+                { setID: "subscriber", version: "0", title: "1-Month Sub", imageURL: image(channel) },
+              ],
+            },
+          },
+        },
+      });
+    },
+  });
+  const session = await ready(server);
+  assert.equal((await fetch(server.api + "badges?revision=999")).status, 404);
+  const response = await fetch(`${server.api}badges?revision=${session.revision}`);
+  assert.equal(response.status, 200);
+  const path = new URL("api/badge/", server.url).pathname;
+  assert.deepEqual((await response.json()).badges, [
+    { setId: "subscriber", version: "0", title: "1-Month Sub", url: path + channel },
+    { setId: "moderator", version: "1", title: "Moderator", url: path + global },
+  ]);
+  assert.deepEqual(requests[0].variables, { id: "123" });
+  // The lookup is shared: a second request does not query Twitch again.
+  await fetch(`${server.api}badges?revision=${session.revision}`);
+  assert.equal(requests.length, 1);
+});
+test("broadcast info carries the channel, chapters and proxied seek previews", async (t) => {
+  const index = "https://d1m7jfoe9zdc1j.cloudfront.net/abc_chan_1_2/storyboards/123-info.json";
+  const requests = [];
+  const server = await fixture(t, {
+    input: "123",
+    fetch: async (url, init) => {
+      requests.push(url);
+      if (url === index)
+        return Response.json([
+          { quality: "low", count: 4, cols: 2, rows: 2, width: 160, height: 90, interval: 30, images: ["123-low-0.jpg"] },
+          { quality: "high", count: 4, cols: 2, rows: 1, width: 220, height: 124, interval: 30, images: ["123-high-0.jpg", "123-high-1.jpg"] },
+          { quality: "short", count: 9, cols: 2, rows: 2, width: 900, height: 500, interval: 30, images: ["x.jpg"] },
+        ]);
+      if (url.endsWith("123-high-1.jpg")) return new Response("jpeg", { headers: { "content-type": "image/jpeg" } });
+      assert.deepEqual(JSON.parse(init.body).variables, { id: "123" });
+      return Response.json({
+        data: {
+          video: {
+            title: "Finale",
+            createdAt: "2026-10-09T18:42:37Z",
+            seekPreviewsURL: index,
+            game: { displayName: "Just Chatting" },
+            owner: {
+              id: "71092938",
+              login: "chan",
+              displayName: "Chan",
+              profileImageURL: "https://static-cdn.jtvnw.net/jtv_user_pictures/chan-profile_image-70x70.jpeg",
+            },
+            moments: {
+              edges: [
+                { node: { positionMilliseconds: 1364000, description: "Grand Theft Auto V" } },
+                { node: { positionMilliseconds: 0, description: "Just Chatting" } },
+                { node: { positionMilliseconds: -5, description: "Broken" } },
+              ],
+            },
+          },
+        },
+      });
+    },
+  });
+  const session = await ready(server);
+  assert.equal((await fetch(server.api + "broadcast?revision=999")).status, 404);
+  const info = await (await fetch(`${server.api}broadcast?revision=${session.revision}`)).json();
+  const prefix = new URL(server.url).pathname;
+  assert.deepEqual(
+    { ...info, storyboard: { ...info.storyboard, images: info.storyboard.images.length } },
+    {
+      channel: { login: "chan", name: "Chan", avatar: `${prefix}api/avatar/chan-profile_image-70x70.jpeg` },
+      title: "Finale",
+      category: "Just Chatting",
+      startedAt: "2026-10-09T18:42:37Z",
+      chapters: [
+        { start: 0, title: "Just Chatting" },
+        { start: 1364, title: "Grand Theft Auto V" },
+      ],
+      // The sharpest set whose sheets hold every tile it announces.
+      storyboard: { images: 2, interval: 30, count: 4, cols: 2, rows: 1, width: 220, height: 124 },
+    },
+  );
+  const sheet = await fetch(new URL(info.storyboard.images[1], server.origin));
+  assert.equal(await sheet.text(), "jpeg");
+  assert.equal(requests.at(-1), "https://d1m7jfoe9zdc1j.cloudfront.net/abc_chan_1_2/storyboards/123-high-1.jpg");
+});
+test("seek previews outside Twitch's media servers are not proxied", async (t) => {
+  const server = await fixture(t, {
+    input: "123",
+    fetch: async (url) => {
+      assert.ok(url.startsWith("https://gql.twitch.tv/"), `unexpected request to ${url}`);
+      return Response.json({
+        data: { video: { title: "Finale", seekPreviewsURL: "https://evil.test/storyboards/1-info.json" } },
+      });
+    },
+  });
+  const session = await ready(server);
+  const info = await (await fetch(`${server.api}broadcast?revision=${session.revision}`)).json();
+  assert.equal(info.title, "Finale");
+  assert.equal(info.channel, null);
+  assert.equal(info.storyboard, null);
+});
+test("third-party emotes merge by precedence and survive one service failing", async (t) => {
+  const requests = [];
+  const bttv = (n) => String(n).padStart(24, "0");
+  const lists = {
+    "https://api.frankerfacez.com/v1/set/global": {
+      default_sets: [3],
+      sets: {
+        3: { emoticons: [{ id: 1, name: "Shared" }, { id: 2, name: "FfzOnly" }] },
+        9: { emoticons: [{ id: 3, name: "NotForEveryone" }] },
+      },
+    },
+    "https://api.betterttv.net/3/cached/emotes/global": [
+      { id: bttv(1), code: "Shared" },
+      { id: "../../etc", code: "BadId" },
+      { id: bttv(2), code: "has space" },
+    ],
+    "https://7tv.io/v3/emote-sets/global": { emotes: [{ id: "01G3WEGZN0000ET2J0MQP5YJ0G", name: "Shared" }] },
+    "https://api.frankerfacez.com/v1/room/id/71092938": { sets: { 7: { emoticons: [{ id: 4, name: "Shared" }] } } },
+    "https://7tv.io/v3/users/twitch/71092938": { emote_set: { emotes: [{ id: "01G3WEGZN0000ET2J0MQP5YJ0H", name: "ChannelOnly" }] } },
+  };
+  const server = await fixture(t, {
+    input: "123",
+    fetch: async (url) => {
+      requests.push(url);
+      if (url.startsWith("https://gql.twitch.tv/"))
+        return Response.json({ data: { video: { owner: { id: "71092938", login: "chan" } } } });
+      if (url === "https://api.betterttv.net/3/cached/users/twitch/71092938")
+        return new Response("down", { status: 503 });
+      if (url in lists) return Response.json(lists[url]);
+      return new Response("png", { headers: { "content-type": "image/png" } });
+    },
+  });
+  const session = await ready(server);
+  const found = await (await fetch(`${server.api}emotes?revision=${session.revision}`)).json();
+  const path = new URL("api/emote/", server.url).pathname;
+  assert.deepEqual(Object.fromEntries(found.emotes.map((emote) => [emote.name, emote.url])), {
+    // The channel's FrankerFaceZ emote beats every global one of that name.
+    Shared: `${path}ffz/4`,
+    FfzOnly: `${path}ffz/2`,
+    ChannelOnly: `${path}7tv/01G3WEGZN0000ET2J0MQP5YJ0H`,
+  });
+  assert.deepEqual(found.failed, ["bttv"]);
+
+  const before = requests.length;
+  assert.equal((await fetch(server.api + "emote/7tv/01G3WEGZN0000ET2J0MQP5YJ0H")).status, 200);
+  assert.equal(requests.at(-1), "https://cdn.7tv.app/emote/01G3WEGZN0000ET2J0MQP5YJ0H/2x.webp");
+  assert.equal((await fetch(`${server.api}emote/bttv/${bttv(1)}`)).status, 200);
+  assert.equal(requests.at(-1), `https://cdn.betterttv.net/emote/${bttv(1)}/2x`);
+  assert.equal((await fetch(server.api + "avatar/chan-profile_image-70x70.jpeg")).status, 200);
+  assert.equal(requests.at(-1), "https://static-cdn.jtvnw.net/jtv_user_pictures/chan-profile_image-70x70.jpeg");
+  // IDs that do not have the provider's shape never leave the server.
+  const sent = requests.length;
+  for (const route of ["emote/bttv/short", "emote/ffz/12a", "emote/7tv/..%2Fx", "badge/ffz/1", "avatar/..%2Fsecret.png", "avatar/readme.txt"])
+    assert.equal((await fetch(server.api + route)).status, 404, route);
+  assert.equal(requests.length, sent);
+  assert.equal(sent - before, 3);
+});
+test("a small FrankerFaceZ emote falls back to its base size", async (t) => {
+  const requests = [];
+  const server = await fixture(t, {
+    fetch: async (url) => {
+      requests.push(url);
+      return url.endsWith("/2")
+        ? new Response("", { status: 404 })
+        : new Response("png", { headers: { "content-type": "image/png" } });
+    },
+  });
+  assert.equal(await (await fetch(server.api + "emote/ffz/9")).text(), "png");
+  assert.deepEqual(requests, [
+    "https://cdn.frankerfacez.com/emote/9/2",
+    "https://cdn.frankerfacez.com/emote/9/1",
+  ]);
+});

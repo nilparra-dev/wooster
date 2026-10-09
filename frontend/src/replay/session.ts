@@ -16,7 +16,11 @@ function parseSession(value: unknown): PlayerSession {
       chat = { kind: "idle" };
       break;
     case "downloading":
-      chat = { kind: "downloading", messages: number(raw.messages) };
+      chat = {
+        kind: "downloading",
+        messages: number(raw.messages),
+        offsetSeconds: number(raw.offsetSeconds),
+      };
       break;
     case "ready":
       chat = {

@@ -33,6 +33,11 @@ npm publish dates.
 - A daily canary workflow resolves a real recent VOD, both by its public ID and
   by its rebuilt hidden path, and opens an issue when that stops working. It
   also requests every archive pinned for `--install-ffmpeg`.
+- `watch` serves the player what a Twitch-like chat and timeline need, through
+  local routes: emote, badge and channel images, the channel's badges, the
+  BetterTTV, FrankerFaceZ and 7TV emote lists, and the broadcast's title,
+  category, chapters and seek previews. For the third-party emotes it contacts
+  those three services, which it did not before.
 
 ### Changed
 
@@ -64,6 +69,7 @@ npm publish dates.
   bundled assets with an ETag.
 - The player caches the chat index in the browser, so reopening an archive does
   not rescan it.
+- The session bridge reports the VOD offset a chat download has reached.
 
 ### Fixed
 
