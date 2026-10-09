@@ -91,6 +91,8 @@ npm publish dates.
 - `download` warns about an output whose duration differs from the playlist
   even when stderr is not a terminal, so scripts and logs see it.
 - The player keeps mute and volume across source changes.
+- `watch` accepts a Twitch link that carries a `?t=` start time, which the
+  resolver rejected as unsupported input.
 - Playlists, tracker pages and Twitch API answers are read with an 8 MB limit,
   and a segment that declares no length is cut off at the segment limit
   instead of being buffered whole.
