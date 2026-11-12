@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, type RefObject } from "react";
  */
 export function usePositionPersistence(
   storageKey: string,
-  video: RefObject<HTMLVideoElement>,
+  video: RefObject<HTMLVideoElement | null>,
   onSave?: (time: number, duration: number) => void,
 ) {
   const lastSaved = useRef(0);

@@ -11,7 +11,7 @@ import type Hls from "hls.js";
  * null when the source is not live or hls.js is not the one playing it.
  */
 export function useHls(
-  video: RefObject<HTMLVideoElement>,
+  video: RefObject<HTMLVideoElement | null>,
   url: string,
   active: boolean,
   onError: (message: string) => void,

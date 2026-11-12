@@ -41,7 +41,7 @@ export interface ChatReplay {
   held: boolean;
   setHeld: (value: boolean) => void;
   setFollowing: (value: boolean) => void;
-  log: RefObject<HTMLDivElement>;
+  log: RefObject<HTMLDivElement | null>;
   /** Clear the rendered window and any pending search, e.g. after a seek. */
   reset: () => void;
   /** Clear only the rendered window, keeping an active search. */
