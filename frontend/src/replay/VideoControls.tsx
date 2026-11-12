@@ -76,7 +76,7 @@ export function VideoControls({
   storyboard = null,
   settings = [],
 }: {
-  video: RefObject<HTMLVideoElement>;
+  video: RefObject<HTMLVideoElement | null>;
   source: string;
   theater: boolean;
   onTheater: () => void;
